@@ -1,4 +1,4 @@
-/* version.h.in
+/* fwpush.h
  *
  * Copyright (C) 2006-2015 wolfSSL Inc.
  *
@@ -19,24 +19,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#ifndef WOLFMQTT_FWPUSH_H
+#define WOLFMQTT_FWPUSH_H
 
-/*
- * The version header provides the current version number to the code
- * based and is updated automatically by the configure script. A copy
- * of the last generated copy of version.h is included with the
- * distribution for environments that do not use configure.
- */
+/* Exposed functions */
+void* fwpush_test(void* args);
 
-
-#pragma once
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#define LIBWOLFMQTT_VERSION_STRING "0.4"
-#define LIBWOLFMQTT_VERSION_HEX 0x00004000
-
-#ifdef __cplusplus
-}
-#endif
+#endif /* WOLFMQTT_FWPUSH_H */

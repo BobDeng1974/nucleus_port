@@ -1,4 +1,4 @@
-/* version.h.in
+/* mqttnet.h
  *
  * Copyright (C) 2006-2015 wolfSSL Inc.
  *
@@ -19,24 +19,27 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-
-/*
- * The version header provides the current version number to the code
- * based and is updated automatically by the configure script. A copy
- * of the last generated copy of version.h is included with the
- * distribution for environments that do not use configure.
- */
-
-
-#pragma once
+#ifndef WOLFMQTT_NET_H
+#define WOLFMQTT_NET_H
 
 #ifdef __cplusplus
-extern "C" {
+    extern "C" {
 #endif
 
-#define LIBWOLFMQTT_VERSION_STRING "0.4"
-#define LIBWOLFMQTT_VERSION_HEX 0x00004000
+
+/* Default MQTT host broker to use, when none is specified in the examples */
+#define DEFAULT_MQTT_HOST       "iot.eclipse.org" /* broker.hivemq.com */
+
+
+/* Functions used to handle the MqttNet structure creation / destruction */
+int MqttClientNet_Init(MqttNet* net);
+int MqttClientNet_DeInit(MqttNet* net);
+
+/* Standard In / Command handling */
+int MqttClientNet_CheckForCommand(MqttNet* net, byte* buffer, word32 length);
 
 #ifdef __cplusplus
-}
+    } /* extern "C" */
 #endif
+
+#endif /* WOLFMQTT_NET_H */
