@@ -1,0 +1,4 @@
+package("mqtt") { 
+    parent "nu.os.net"
+    enable false
+}
