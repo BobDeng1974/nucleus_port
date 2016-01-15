@@ -133,7 +133,8 @@
 /* #define WOLFSSL_STATIC_RSA */
 
 /* Uncomment next line if using Nucleus */
-/* #define NUCLEUS */
+#define NUCLEUS
+
 
 #include <wolfssl/wolfcrypt/visibility.h>
 
@@ -347,7 +348,7 @@
      * __RENESAS__ check for RENESAS */
     #if (   !defined(__CC_ARM) && \
             !defined(_TMS320C6X) && \
-            !defined(__RENESAS__)
+            !defined(__RENESAS__) \
         ) || defined(CFG_NU_OS_SVCS_POSIX_ENABLE)
         #define NUCLEUS_USE_GETTIMEOFDAY
         #include <sys/time.h>

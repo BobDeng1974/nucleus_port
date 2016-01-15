@@ -43,6 +43,10 @@
 #define USE_WINDOWS_API
 #endif
 
+#ifndef WOLFMQTT_NO_STDIO
+    #include <stdio.h>
+#endif
+
 /* Allow custom override of data types */
 #ifndef WOLFMQTT_CUSTOM_TYPES
     /* Basic Types */

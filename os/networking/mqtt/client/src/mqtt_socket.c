@@ -261,19 +261,24 @@ int MqttSocket_Connect(MqttClient *client, const char* host, word16 port,
                     }
                 }
                 else {
+#ifndef WOLFMQTT_NO_STDIO
                     printf("MqttSocket_TlsConnect: wolfSSL_new error!\n");
+#endif
                     rc = -1;
                 }
             }
         }
         else {
+#ifndef WOLFMQTT_NO_STDIO
             printf("MqttSocket_TlsConnect: wolfSSL_CTX_new error!\n");
+#endif
             rc = -1;
         }
 
         /* Handle error case */
         if (rc) {
-            const char* errstr = NULL;
+#ifndef WOLFMQTT_NO_STDIO
+        	const char* errstr = NULL;
             int errnum = 0;
             if (client->tls.ssl) {
                 errnum = wolfSSL_get_error(client->tls.ssl, 0);
@@ -282,6 +287,7 @@ int MqttSocket_Connect(MqttClient *client, const char* host, word16 port,
 
             printf("MqttSocket_TlsConnect Error %d: Num %d, %s\n",
                 rc, errnum, errstr);
+#endif
 
             /* Make sure we cleanup on error */
             MqttSocket_Disconnect(client);
