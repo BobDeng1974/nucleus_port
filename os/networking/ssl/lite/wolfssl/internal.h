@@ -1,14 +1,23 @@
 /* internal.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as wolfSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 #ifndef WOLFSSL_INT_H
@@ -79,6 +88,12 @@
     #include <wolfssl/wolfcrypt/ripemd.h>
 #endif
 
+#ifdef HAVE_IDEA
+    #include <wolfssl/wolfcrypt/idea.h>
+#endif
+
+#include <wolfssl/wolfcrypt/hash.h>
+
 #ifdef WOLFSSL_CALLBACKS
     #include <wolfssl/callbacks.h>
     #include <signal.h>
@@ -94,29 +109,35 @@
         #endif
         #include <windows.h>
     #endif
+#elif defined(THREADX)
+    #ifndef SINGLE_THREADED
+        #include "tx_api.h"
+    #endif
 #elif defined(NUCLEUS)
     #ifndef SINGLE_THREADED
         #include "nucleus.h"
         #include "kernel/nu_kernel.h"
     #endif
-#elif defined(THREADX)
-    #ifndef SINGLE_THREADED
-        #include "tx_api.h"
-    #endif
 #elif defined(MICRIUM)
     /* do nothing, just don't pick Unix */
-#elif defined(FREERTOS) || defined(WOLFSSL_SAFERTOS)
+#elif defined(FREERTOS) || defined(FREERTOS_TCP) || defined(WOLFSSL_SAFERTOS)
     /* do nothing */
 #elif defined(EBSNET)
     /* do nothing */
-#elif defined(FREESCALE_MQX)
+#elif defined(FREESCALE_MQX) || defined(FREESCALE_KSDK_MQX)
     /* do nothing */
+#elif defined(WOLFSSL_uITRON4)
+        /* do nothing */
+#elif defined(WOLFSSL_uTKERNEL2)
+        /* do nothing */
 #elif defined(WOLFSSL_MDK_ARM)
     #if defined(WOLFSSL_MDK5)
          #include "cmsis_os.h"
     #else
         #include <rtl.h>
     #endif
+#elif defined(WOLFSSL_CMSIS_RTOS)
+    #include "cmsis_os.h"
 #elif defined(MBED)
 #elif defined(WOLFSSL_TIRTOS)
     /* do nothing */
@@ -177,172 +198,349 @@ typedef byte word24[3];
    make sure to use at least one BUILD_SSL_xxx or BUILD_TLS_xxx is defined
 
    When adding cipher suites, add name to cipher_names, idx to cipher_name_idx
+
+   Now that there is a maximum strength crypto build, the following BUILD_XXX
+   flags need to be divided into two groups selected by WOLFSSL_MAX_STRENGTH.
+   Those that do not use Perfect Forward Security and do not use AEAD ciphers
+   need to be switched off. Allowed suites use (EC)DHE, AES-GCM|CCM, or
+   CHACHA-POLY.
 */
-#if !defined(NO_RSA) && !defined(NO_RC4)
-  #if !defined(NO_SHA)
-    #define BUILD_SSL_RSA_WITH_RC4_128_SHA
-  #endif
-    #if !defined(NO_MD5)
-        #define BUILD_SSL_RSA_WITH_RC4_128_MD5
-    #endif
-    #if !defined(NO_TLS) && defined(HAVE_NTRU) && !defined(NO_SHA)
-        #define BUILD_TLS_NTRU_RSA_WITH_RC4_128_SHA
-    #endif
+
+/* Check that if WOLFSSL_MAX_STRENGTH is set that all the required options are
+ * not turned off. */
+#if defined(WOLFSSL_MAX_STRENGTH) && \
+    ((!defined(HAVE_ECC) && (defined(NO_DH) || defined(NO_RSA))) || \
+     (!defined(HAVE_AESGCM) && !defined(HAVE_AESCCM) && \
+      (!defined(HAVE_POLY1305) || !defined(HAVE_CHACHA))) || \
+     (defined(NO_SHA256) && !defined(WOLFSSL_SHA384)) || \
+     !defined(NO_OLD_TLS))
+
+    #error "You are trying to build max strength with requirements disabled."
 #endif
 
-#if !defined(NO_RSA) && !defined(NO_DES3)
-  #if !defined(NO_SHA)
-    #define BUILD_SSL_RSA_WITH_3DES_EDE_CBC_SHA
-    #if !defined(NO_TLS) && defined(HAVE_NTRU)
-        #define BUILD_TLS_NTRU_RSA_WITH_3DES_EDE_CBC_SHA
-    #endif
-  #endif
+/* Have QSH : Quantum-safe Handshake */
+#if defined(HAVE_QSH)
+    #define BUILD_TLS_QSH
 #endif
 
-#if !defined(NO_RSA) && !defined(NO_AES) && !defined(NO_TLS)
-  #if !defined(NO_SHA)
-    #define BUILD_TLS_RSA_WITH_AES_128_CBC_SHA
-    #define BUILD_TLS_RSA_WITH_AES_256_CBC_SHA
-    #if defined(HAVE_NTRU)
-        #define BUILD_TLS_NTRU_RSA_WITH_AES_128_CBC_SHA
-        #define BUILD_TLS_NTRU_RSA_WITH_AES_256_CBC_SHA
-    #endif
-  #endif
-    #if !defined (NO_SHA256)
-        #define BUILD_TLS_RSA_WITH_AES_128_CBC_SHA256
-        #define BUILD_TLS_RSA_WITH_AES_256_CBC_SHA256
-    #endif
-    #if defined (HAVE_AESGCM)
-        #define BUILD_TLS_RSA_WITH_AES_128_GCM_SHA256
-        #if defined (WOLFSSL_SHA384)
-            #define BUILD_TLS_RSA_WITH_AES_256_GCM_SHA384
+#ifndef WOLFSSL_MAX_STRENGTH
+
+    #if !defined(NO_RSA) && !defined(NO_RC4)
+        #if defined(WOLFSSL_STATIC_RSA)
+            #if !defined(NO_SHA)
+                #define BUILD_SSL_RSA_WITH_RC4_128_SHA
+            #endif
+            #if !defined(NO_MD5)
+                #define BUILD_SSL_RSA_WITH_RC4_128_MD5
+            #endif
+        #endif
+        #if !defined(NO_TLS) && defined(HAVE_NTRU) && !defined(NO_SHA) \
+            && defined(WOLFSSL_STATIC_RSA)
+            #define BUILD_TLS_NTRU_RSA_WITH_RC4_128_SHA
         #endif
     #endif
-    #if defined (HAVE_AESCCM)
-        #define BUILD_TLS_RSA_WITH_AES_128_CCM_8
-        #define BUILD_TLS_RSA_WITH_AES_256_CCM_8
-    #endif
-    #if defined(HAVE_BLAKE2)
-        #define BUILD_TLS_RSA_WITH_AES_128_CBC_B2B256
-        #define BUILD_TLS_RSA_WITH_AES_256_CBC_B2B256
-    #endif
-#endif
 
-#if defined(HAVE_CAMELLIA) && !defined(NO_TLS)
-    #ifndef NO_RSA
-      #if !defined(NO_SHA)
-        #define BUILD_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA
-        #define BUILD_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA
-      #endif
-        #ifndef NO_SHA256
-            #define BUILD_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256
-            #define BUILD_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256
-        #endif
-        #if !defined(NO_DH)
-          #if !defined(NO_SHA)
-            #define BUILD_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA
-            #define BUILD_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA
-          #endif
-            #ifndef NO_SHA256
-                #define BUILD_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
-                #define BUILD_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256
+    #if !defined(NO_RSA) && !defined(NO_DES3)
+        #if !defined(NO_SHA)
+            #if defined(WOLFSSL_STATIC_RSA)
+                #define BUILD_SSL_RSA_WITH_3DES_EDE_CBC_SHA
+            #endif
+            #if !defined(NO_TLS) && defined(HAVE_NTRU) \
+                && defined(WOLFSSL_STATIC_RSA)
+                    #define BUILD_TLS_NTRU_RSA_WITH_3DES_EDE_CBC_SHA
             #endif
         #endif
     #endif
-#endif
 
-#if !defined(NO_PSK) && !defined(NO_AES) && !defined(NO_TLS)
-  #if !defined(NO_SHA)
-    #define BUILD_TLS_PSK_WITH_AES_128_CBC_SHA
-    #define BUILD_TLS_PSK_WITH_AES_256_CBC_SHA
-  #endif
-    #ifndef NO_SHA256
-        #define BUILD_TLS_PSK_WITH_AES_128_CBC_SHA256
-        #ifdef HAVE_AESGCM
-            #define BUILD_TLS_PSK_WITH_AES_128_GCM_SHA256
-        #endif
-        #ifdef HAVE_AESCCM
-            #define BUILD_TLS_PSK_WITH_AES_128_CCM_8
-            #define BUILD_TLS_PSK_WITH_AES_256_CCM_8
-            #define BUILD_TLS_PSK_WITH_AES_128_CCM
-            #define BUILD_TLS_PSK_WITH_AES_256_CCM
+    #if !defined(NO_RSA) && defined(HAVE_IDEA)
+        #if !defined(NO_SHA) && defined(WOLFSSL_STATIC_RSA)
+            #define BUILD_SSL_RSA_WITH_IDEA_CBC_SHA
         #endif
     #endif
-    #ifdef WOLFSSL_SHA384
-        #define BUILD_TLS_PSK_WITH_AES_256_CBC_SHA384
-        #ifdef HAVE_AESGCM
-            #define BUILD_TLS_PSK_WITH_AES_256_GCM_SHA384
-        #endif
-    #endif
-#endif
 
-#if !defined(NO_TLS) && defined(HAVE_NULL_CIPHER)
-    #if !defined(NO_RSA)
-      #if !defined(NO_SHA)
-        #define BUILD_TLS_RSA_WITH_NULL_SHA
-      #endif
-      #ifndef NO_SHA256
-        #define BUILD_TLS_RSA_WITH_NULL_SHA256
-      #endif
+    #if !defined(NO_RSA) && !defined(NO_AES) && !defined(NO_TLS)
+        #if !defined(NO_SHA)
+            #if defined(WOLFSSL_STATIC_RSA)
+                #define BUILD_TLS_RSA_WITH_AES_128_CBC_SHA
+                #define BUILD_TLS_RSA_WITH_AES_256_CBC_SHA
+            #endif
+            #if defined(HAVE_NTRU) && defined(WOLFSSL_STATIC_RSA)
+                    #define BUILD_TLS_NTRU_RSA_WITH_AES_128_CBC_SHA
+                    #define BUILD_TLS_NTRU_RSA_WITH_AES_256_CBC_SHA
+            #endif
+        #endif
+        #if defined(WOLFSSL_STATIC_RSA)
+            #if !defined (NO_SHA256)
+                #define BUILD_TLS_RSA_WITH_AES_128_CBC_SHA256
+                #define BUILD_TLS_RSA_WITH_AES_256_CBC_SHA256
+            #endif
+            #if defined (HAVE_AESGCM)
+                #define BUILD_TLS_RSA_WITH_AES_128_GCM_SHA256
+                #if defined (WOLFSSL_SHA384)
+                    #define BUILD_TLS_RSA_WITH_AES_256_GCM_SHA384
+                #endif
+            #endif
+            #if defined (HAVE_AESCCM)
+                #define BUILD_TLS_RSA_WITH_AES_128_CCM_8
+                #define BUILD_TLS_RSA_WITH_AES_256_CCM_8
+            #endif
+            #if defined(HAVE_BLAKE2)
+                #define BUILD_TLS_RSA_WITH_AES_128_CBC_B2B256
+                #define BUILD_TLS_RSA_WITH_AES_256_CBC_B2B256
+            #endif
+        #endif
     #endif
-    #if !defined(NO_PSK)
-      #if !defined(NO_SHA)
-        #define BUILD_TLS_PSK_WITH_NULL_SHA
-      #endif
+
+    #if defined(HAVE_CAMELLIA) && !defined(NO_TLS)
+        #ifndef NO_RSA
+          #if defined(WOLFSSL_STATIC_RSA)
+            #if !defined(NO_SHA)
+                #define BUILD_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA
+                #define BUILD_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA
+            #endif
+            #ifndef NO_SHA256
+                #define BUILD_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256
+                #define BUILD_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256
+            #endif
+          #endif
+            #if !defined(NO_DH)
+              #if !defined(NO_SHA)
+                #define BUILD_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA
+                #define BUILD_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA
+              #endif
+                #ifndef NO_SHA256
+                    #define BUILD_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
+                    #define BUILD_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256
+                #endif
+            #endif
+        #endif
+    #endif
+
+#if defined(WOLFSSL_STATIC_PSK)
+    #if !defined(NO_PSK) && !defined(NO_AES) && !defined(NO_TLS)
+        #if !defined(NO_SHA)
+            #define BUILD_TLS_PSK_WITH_AES_128_CBC_SHA
+            #define BUILD_TLS_PSK_WITH_AES_256_CBC_SHA
+        #endif
         #ifndef NO_SHA256
-            #define BUILD_TLS_PSK_WITH_NULL_SHA256
+            #define BUILD_TLS_PSK_WITH_AES_128_CBC_SHA256
+            #ifdef HAVE_AESGCM
+                #define BUILD_TLS_PSK_WITH_AES_128_GCM_SHA256
+            #endif
+            #ifdef HAVE_AESCCM
+                #define BUILD_TLS_PSK_WITH_AES_128_CCM_8
+                #define BUILD_TLS_PSK_WITH_AES_256_CCM_8
+                #define BUILD_TLS_PSK_WITH_AES_128_CCM
+                #define BUILD_TLS_PSK_WITH_AES_256_CCM
+            #endif
         #endif
         #ifdef WOLFSSL_SHA384
-            #define BUILD_TLS_PSK_WITH_NULL_SHA384
-        #endif
-    #endif
-#endif
-
-#if !defined(NO_HC128) && !defined(NO_RSA) && !defined(NO_TLS)
-    #define BUILD_TLS_RSA_WITH_HC_128_MD5
-  #if !defined(NO_SHA)
-    #define BUILD_TLS_RSA_WITH_HC_128_SHA
-  #endif
-  #if defined(HAVE_BLAKE2)
-    #define BUILD_TLS_RSA_WITH_HC_128_B2B256
-  #endif
-#endif
-
-#if !defined(NO_RABBIT) && !defined(NO_TLS) && !defined(NO_RSA)
-  #if !defined(NO_SHA)
-    #define BUILD_TLS_RSA_WITH_RABBIT_SHA
-  #endif
-#endif
-
-#if !defined(NO_DH) && !defined(NO_AES) && !defined(NO_TLS) && \
-    !defined(NO_RSA)
-  #if !defined(NO_SHA)
-    #define BUILD_TLS_DHE_RSA_WITH_AES_128_CBC_SHA
-    #define BUILD_TLS_DHE_RSA_WITH_AES_256_CBC_SHA
-  #endif
-    #if !defined (NO_SHA256)
-        #define BUILD_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
-        #define BUILD_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
-        #if defined (HAVE_AESGCM)
-            #define BUILD_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
-            #if defined (WOLFSSL_SHA384)
-                #define BUILD_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
+            #define BUILD_TLS_PSK_WITH_AES_256_CBC_SHA384
+            #ifdef HAVE_AESGCM
+                #define BUILD_TLS_PSK_WITH_AES_256_GCM_SHA384
             #endif
         #endif
     #endif
 #endif
 
-#if defined(HAVE_ANON) && !defined(NO_TLS) && !defined(NO_DH) && \
-    !defined(NO_AES) && !defined(NO_SHA)
-    #define BUILD_TLS_DH_anon_WITH_AES_128_CBC_SHA
+    #if !defined(NO_TLS) && defined(HAVE_NULL_CIPHER)
+        #if !defined(NO_RSA)
+            #if defined(WOLFSSL_STATIC_RSA)
+                #if !defined(NO_SHA)
+                    #define BUILD_TLS_RSA_WITH_NULL_SHA
+                #endif
+                #ifndef NO_SHA256
+                    #define BUILD_TLS_RSA_WITH_NULL_SHA256
+                #endif
+            #endif
+        #endif
+        #if !defined(NO_PSK) && defined(WOLFSSL_STATIC_PSK)
+            #if !defined(NO_SHA)
+                #define BUILD_TLS_PSK_WITH_NULL_SHA
+            #endif
+            #ifndef NO_SHA256
+                #define BUILD_TLS_PSK_WITH_NULL_SHA256
+            #endif
+            #ifdef WOLFSSL_SHA384
+                #define BUILD_TLS_PSK_WITH_NULL_SHA384
+            #endif
+        #endif
+    #endif
+
+#if defined(WOLFSSL_STATIC_RSA)
+    #if !defined(NO_HC128) && !defined(NO_RSA) && !defined(NO_TLS)
+        #ifndef NO_MD5
+            #define BUILD_TLS_RSA_WITH_HC_128_MD5
+        #endif
+        #if !defined(NO_SHA)
+            #define BUILD_TLS_RSA_WITH_HC_128_SHA
+        #endif
+        #if defined(HAVE_BLAKE2)
+            #define BUILD_TLS_RSA_WITH_HC_128_B2B256
+        #endif
+    #endif
+
+    #if !defined(NO_RABBIT) && !defined(NO_TLS) && !defined(NO_RSA)
+        #if !defined(NO_SHA)
+            #define BUILD_TLS_RSA_WITH_RABBIT_SHA
+        #endif
+    #endif
+#endif
+
+    #if !defined(NO_DH) && !defined(NO_AES) && !defined(NO_TLS) && \
+        !defined(NO_RSA)
+
+        #if !defined(NO_SHA)
+            #define BUILD_TLS_DHE_RSA_WITH_AES_128_CBC_SHA
+            #define BUILD_TLS_DHE_RSA_WITH_AES_256_CBC_SHA
+        #endif
+        #if !defined(NO_SHA256)
+            #define BUILD_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
+            #define BUILD_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
+        #endif
+    #endif
+
+    #if defined(HAVE_ANON) && !defined(NO_TLS) && !defined(NO_DH) && \
+        !defined(NO_AES) && !defined(NO_SHA)
+        #define BUILD_TLS_DH_anon_WITH_AES_128_CBC_SHA
+    #endif
+
+    #if !defined(NO_DH) && !defined(NO_PSK) && !defined(NO_TLS)
+        #ifndef NO_SHA256
+            #ifndef NO_AES
+                #define BUILD_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256
+            #endif
+            #ifdef HAVE_NULL_CIPHER
+                #define BUILD_TLS_DHE_PSK_WITH_NULL_SHA256
+            #endif
+        #endif
+        #ifdef WOLFSSL_SHA384
+            #ifndef NO_AES
+                #define BUILD_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384
+            #endif
+            #ifdef HAVE_NULL_CIPHER
+                #define BUILD_TLS_DHE_PSK_WITH_NULL_SHA384
+            #endif
+        #endif
+    #endif
+
+    #if defined(HAVE_ECC) && !defined(NO_TLS)
+        #if !defined(NO_AES)
+            #if !defined(NO_SHA)
+                #if !defined(NO_RSA)
+                    #define BUILD_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+                    #define BUILD_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+                    #if defined(WOLFSSL_STATIC_DH)
+                        #define BUILD_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
+                        #define BUILD_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
+                    #endif
+                #endif
+
+                #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+                #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+
+                #if defined(WOLFSSL_STATIC_DH)
+                    #define BUILD_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
+                    #define BUILD_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
+                #endif
+            #endif /* NO_SHA */
+            #ifndef NO_SHA256
+                #if !defined(NO_RSA)
+                    #define BUILD_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
+                    #if defined(WOLFSSL_STATIC_DH)
+                        #define BUILD_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
+                    #endif
+                #endif
+                #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+                #if defined(WOLFSSL_STATIC_DH)
+                    #define BUILD_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
+                #endif
+            #endif
+
+            #ifdef WOLFSSL_SHA384
+                #if !defined(NO_RSA)
+                    #define BUILD_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
+                    #if defined(WOLFSSL_STATIC_DH)
+                        #define BUILD_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
+                    #endif
+                #endif
+                #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
+                #if defined(WOLFSSL_STATIC_DH)
+                    #define BUILD_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
+                #endif
+            #endif
+
+            #if defined (HAVE_AESGCM)
+                #if !defined(NO_RSA)
+                    #if defined(WOLFSSL_STATIC_DH)
+                        #define BUILD_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256
+                    #endif
+                    #if defined(WOLFSSL_SHA384)
+                        #if defined(WOLFSSL_STATIC_DH)
+                            #define BUILD_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384
+                        #endif
+                    #endif
+                #endif
+
+                #if defined(WOLFSSL_STATIC_DH)
+                    #define BUILD_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256
+                #endif
+
+                #if defined(WOLFSSL_SHA384)
+                    #if defined(WOLFSSL_STATIC_DH)
+                        #define BUILD_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384
+                    #endif
+                #endif
+            #endif
+        #endif /* NO_AES */
+        #if !defined(NO_RC4)
+            #if !defined(NO_SHA)
+                #if !defined(NO_RSA)
+                    #define BUILD_TLS_ECDHE_RSA_WITH_RC4_128_SHA
+                    #if defined(WOLFSSL_STATIC_DH)
+                        #define BUILD_TLS_ECDH_RSA_WITH_RC4_128_SHA
+                    #endif
+                #endif
+
+                #define BUILD_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
+                #if defined(WOLFSSL_STATIC_DH)
+                    #define BUILD_TLS_ECDH_ECDSA_WITH_RC4_128_SHA
+                #endif
+            #endif
+        #endif
+        #if !defined(NO_DES3)
+            #ifndef NO_SHA
+                #if !defined(NO_RSA)
+                    #define BUILD_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
+                    #if defined(WOLFSSL_STATIC_DH)
+                        #define BUILD_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA
+                    #endif
+                #endif
+
+                #define BUILD_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA
+                #if defined(WOLFSSL_STATIC_DH)
+                    #define BUILD_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
+                #endif
+            #endif /* NO_SHA */
+        #endif
+    #endif
+
+#endif /* !WOLFSSL_MAX_STRENGTH */
+
+#if !defined(NO_DH) && !defined(NO_AES) && !defined(NO_TLS) && \
+    !defined(NO_RSA) && defined(HAVE_AESGCM)
+
+    #ifndef NO_SHA256
+        #define BUILD_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
+    #endif
+
+    #ifdef WOLFSSL_SHA384
+        #define BUILD_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
+    #endif
 #endif
 
 #if !defined(NO_DH) && !defined(NO_PSK) && !defined(NO_TLS)
     #ifndef NO_SHA256
-        #define BUILD_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256
-        #ifdef HAVE_NULL_CIPHER
-            #define BUILD_TLS_DHE_PSK_WITH_NULL_SHA256
-        #endif
         #ifdef HAVE_AESGCM
             #define BUILD_TLS_DHE_PSK_WITH_AES_128_GCM_SHA256
         #endif
@@ -351,93 +549,41 @@ typedef byte word24[3];
             #define BUILD_TLS_DHE_PSK_WITH_AES_256_CCM
         #endif
     #endif
-    #ifdef WOLFSSL_SHA384
-        #define BUILD_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384
-        #ifdef HAVE_NULL_CIPHER
-            #define BUILD_TLS_DHE_PSK_WITH_NULL_SHA384
-        #endif
-        #ifdef HAVE_AESGCM
-            #define BUILD_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384
-        #endif
+    #if defined(WOLFSSL_SHA384) && defined(HAVE_AESGCM)
+        #define BUILD_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384
     #endif
 #endif
 
-#if defined(HAVE_ECC) && !defined(NO_TLS)
-    #if !defined(NO_AES)
-        #if !defined(NO_SHA)
-            #if !defined(NO_RSA)
-                #define BUILD_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
-                #define BUILD_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
-                #define BUILD_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
-                #define BUILD_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
-            #endif
-    
-            #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
-            #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
-    
-            #define BUILD_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
-            #define BUILD_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
-        #endif /* NO_SHA */
+#if defined(HAVE_ECC) && !defined(NO_TLS) && !defined(NO_AES)
+    #ifdef HAVE_AESGCM
         #ifndef NO_SHA256
-            #if !defined(NO_RSA)
-                #define BUILD_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
-                #define BUILD_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
-            #endif
-            #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
-            #define BUILD_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
-        #endif
-
-        #ifdef WOLFSSL_SHA384
-            #if !defined(NO_RSA)
-                #define BUILD_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
-                #define BUILD_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
-            #endif
-            #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
-            #define BUILD_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
-        #endif
-
-        #if defined (HAVE_AESGCM)
-            #if !defined(NO_RSA)
-                #define BUILD_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-                #define BUILD_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256
-                #if defined(WOLFSSL_SHA384)
-                    #define BUILD_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-                    #define BUILD_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384
-                #endif
-            #endif
-
             #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-            #define BUILD_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256
-            
-            #if defined(WOLFSSL_SHA384)
-                #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-                #define BUILD_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384
+            #ifndef NO_RSA
+                #define BUILD_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
             #endif
         #endif
-        #if defined (HAVE_AESCCM)
-            #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8
-            #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8
-        #endif
-    #endif /* NO_AES */
-    #if !defined(NO_RC4)
-        #if !defined(NO_SHA)
-            #if !defined(NO_RSA)
-                #define BUILD_TLS_ECDHE_RSA_WITH_RC4_128_SHA
-                #define BUILD_TLS_ECDH_RSA_WITH_RC4_128_SHA
+        #ifdef WOLFSSL_SHA384
+            #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+            #ifndef NO_RSA
+                #define BUILD_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
             #endif
-
-            #define BUILD_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
-            #define BUILD_TLS_ECDH_ECDSA_WITH_RC4_128_SHA
         #endif
     #endif
-    #if !defined(NO_DES3)
-        #if !defined(NO_RSA)
-            #define BUILD_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
-            #define BUILD_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA
-        #endif
+    #if defined(HAVE_AESCCM) && !defined(NO_SHA256)
+        #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8
+        #define BUILD_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8
+    #endif
+#endif
 
-        #define BUILD_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA
-        #define BUILD_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
+#if defined(HAVE_CHACHA) && defined(HAVE_POLY1305) && !defined(NO_SHA256)
+    #ifdef HAVE_ECC
+        #define BUILD_TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+        #ifndef NO_RSA
+            #define BUILD_TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+        #endif
+    #endif
+    #if !defined(NO_DH) && !defined(NO_RSA)
+        #define BUILD_TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256
     #endif
 #endif
 
@@ -453,13 +599,17 @@ typedef byte word24[3];
 
 #if defined(BUILD_TLS_RSA_WITH_AES_128_CBC_SHA) || \
     defined(BUILD_TLS_RSA_WITH_AES_256_CBC_SHA) || \
-    defined(BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+    defined(BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256) || \
+    defined(BUILD_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256)
     #undef  BUILD_AES
     #define BUILD_AES
 #endif
 
 #if defined(BUILD_TLS_RSA_WITH_AES_128_GCM_SHA256) || \
-    defined(BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256)
+    defined(BUILD_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256) || \
+    defined(BUILD_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256) || \
+    defined(BUILD_TLS_PSK_WITH_AES_128_GCM_SHA256) || \
+    defined(BUILD_TLS_DHE_PSK_WITH_AES_128_GCM_SHA256)
     #define BUILD_AESGCM
 #endif
 
@@ -494,25 +644,24 @@ typedef byte word24[3];
 
 #ifdef HAVE_CHACHA
     #define CHACHA20_BLOCK_SIZE 16
-    /* ChaCha - Poly AEAD suites */
-    #if defined(HAVE_POLY1305) && !defined(NO_SHA256)
-        #if defined(HAVE_ECC)
-            #if !defined(NO_RSA)
-                #define BUILD_TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
-            #endif
-            #define BUILD_TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
-        #endif
-        #if !defined(NO_DH) && !defined(NO_RSA)
-            #define BUILD_TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256
-        #endif
-    #endif /* end of ChaCha - Poly AEAD suites */
 #endif
 
-#if defined(BUILD_AESGCM) || defined(HAVE_AESCCM) || \
-                             (defined(HAVE_CHACHA) && defined(HAVE_POLY1305))
+#if defined(WOLFSSL_MAX_STRENGTH) || \
+    defined(HAVE_AESGCM) || defined(HAVE_AESCCM) || \
+    (defined(HAVE_CHACHA) && defined(HAVE_POLY1305))
+
     #define HAVE_AEAD
 #endif
 
+#if defined(WOLFSSL_MAX_STRENGTH) || \
+    defined(HAVE_ECC) || !defined(NO_DH)
+
+    #define HAVE_PFS
+#endif
+
+#if defined(BUILD_SSL_RSA_WITH_IDEA_CBC_SHA)
+    #define BUILD_IDEA
+#endif
 
 /* actual cipher values, 2nd byte */
 enum {
@@ -532,6 +681,7 @@ enum {
     SSL_RSA_WITH_RC4_128_SHA          = 0x05,
     SSL_RSA_WITH_RC4_128_MD5          = 0x04,
     SSL_RSA_WITH_3DES_EDE_CBC_SHA     = 0x0A,
+    SSL_RSA_WITH_IDEA_CBC_SHA         = 0x07,
 
     /* ECC suites, first byte is 0xC0 (ECC_BYTE) */
     TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA    = 0x14,
@@ -576,6 +726,10 @@ enum {
     TLS_NTRU_RSA_WITH_3DES_EDE_CBC_SHA = 0xe6,
     TLS_NTRU_RSA_WITH_AES_128_CBC_SHA  = 0xe7,  /* clashes w/official SHA-256 */
     TLS_NTRU_RSA_WITH_AES_256_CBC_SHA  = 0xe8,
+
+    /* wolfSSL extension - NTRU , Quantum-safe Handshake
+       first byte is 0xD0 (QSH_BYTE) */
+    TLS_QSH      = 0x01,
 
     /* SHA256 */
     TLS_DHE_RSA_WITH_AES_256_CBC_SHA256 = 0x6b,
@@ -652,6 +806,7 @@ enum {
 
 enum Misc {
     ECC_BYTE    =  0xC0,           /* ECC first cipher suite byte */
+    QSH_BYTE    = 0xD0,            /* Quantum-safe Handshake cipher suite */
     CHACHA_BYTE = 0xCC,            /* ChaCha first cipher suite */
 
     SEND_CERT       = 1,
@@ -702,11 +857,12 @@ enum Misc {
     VERIFY_HEADER  =  2,       /* always use 2 bytes      */
     EXT_ID_SZ      =  2,       /* always use 2 bytes      */
     MAX_DH_SIZE    = 513,      /* 4096 bit plus possible leading 0 */
+    SESSION_HINT_SZ = 4,       /* session timeout hint */
 
-    MAX_SUITE_SZ = 200,        /* 100 suites for now! */
     RAN_LEN      = 32,         /* random length           */
     SEED_LEN     = RAN_LEN * 2, /* tls prf seed length    */
     ID_LEN       = 32,         /* session id length       */
+    COOKIE_SECRET_SZ = 14,     /* dtls cookie secret size */
     MAX_COOKIE_LEN = 32,       /* max dtls cookie size    */
     COOKIE_SZ    = 20,         /* use a 20 byte cookie    */
     SUITE_LEN    =  2,         /* cipher suite sz length  */
@@ -718,7 +874,7 @@ enum Misc {
     COMP_LEN     =  1,         /* compression length      */
     CURVE_LEN    =  2,         /* ecc named curve length  */
     SERVER_ID_LEN = 20,        /* server session id length  */
-    
+
     HANDSHAKE_HEADER_SZ   = 4,  /* type + length(3)        */
     RECORD_HEADER_SZ      = 5,  /* type + version + len(2) */
     CERT_HEADER_SZ        = 3,  /* always 3 bytes          */
@@ -747,7 +903,7 @@ enum Misc {
     MAX_PRF_LABSEED     = 128, /* Maximum label + seed len */
     MAX_PRF_DIG         = 224, /* Maximum digest len      */
     MAX_REQUEST_SZ      = 256, /* Maximum cert req len (no auth yet */
-    SESSION_FLUSH_COUNT = 256, /* Flush session cache unless user turns off */ 
+    SESSION_FLUSH_COUNT = 256, /* Flush session cache unless user turns off */
 
     RC4_KEY_SIZE        = 16,  /* always 128bit           */
     DES_KEY_SIZE        =  8,  /* des                     */
@@ -794,7 +950,12 @@ enum Misc {
     ECDHE_SIZE          = 32,  /* ECHDE server size defaults to 256 bit */
     MAX_EXPORT_ECC_SZ   = 256, /* Export ANS X9.62 max future size */
 
+#ifdef HAVE_QSH
+    /* qsh handshake sends 600+ size keys over hello extensions */
+    MAX_HELLO_SZ       = 2048,  /* max client or server hello */
+#else
     MAX_HELLO_SZ       = 128,  /* max client or server hello */
+#endif
     MAX_CERT_VERIFY_SZ = 1024, /* max   */
     CLIENT_HELLO_FIRST =  35,  /* Protocol + RAN_LEN + sizeof(id_len) */
     MAX_SUITE_NAME     =  48,  /* maximum length of cipher suite string */
@@ -808,7 +969,7 @@ enum Misc {
 
     MAX_WOLFSSL_FILE_SIZE = 1024 * 1024 * 4,  /* 4 mb file size alloc limit */
 
-#ifdef FORTRESS
+#if defined(FORTRESS) || defined (HAVE_STUNNEL)
     MAX_EX_DATA        =   3,  /* allow for three items of ex_data */
 #endif
 
@@ -832,6 +993,29 @@ enum Misc {
     COPY               =   1   /* should we copy static buffer for write */
 };
 
+
+#ifndef WOLFSSL_MAX_SUITE_SZ
+    #define WOLFSSL_MAX_SUITE_SZ 300
+    /* 150 suites for now! */
+#endif
+
+
+#ifndef WOLFSSL_MIN_DHKEY_BITS
+    #ifdef WOLFSSL_MAX_STRENGTH
+        #define WOLFSSL_MIN_DHKEY_BITS 2048
+    #else
+        #define WOLFSSL_MIN_DHKEY_BITS 1024
+    #endif
+#endif
+#if (WOLFSSL_MIN_DHKEY_BITS % 8)
+    #error DH minimum bit size must be multiple of 8
+#endif
+#if (WOLFSSL_MIN_DHKEY_BITS > 16000)
+    #error DH minimum bit size must not be greater than 16000
+#endif
+#define MIN_DHKEY_SZ (WOLFSSL_MIN_DHKEY_BITS / 8)
+
+
 #ifdef SESSION_INDEX
 /* Shift values for making a session index */
 #define SESSIDX_ROW_SHIFT 4
@@ -844,8 +1028,25 @@ enum Misc {
     #define MAX_CHAIN_DEPTH 9
 #endif
 
+/* max size of a certificate message payload */
+/* assumes MAX_CHAIN_DEPTH number of certificates at 2kb per certificate */
+#ifndef MAX_CERTIFICATE_SZ
+    #define MAX_CERTIFICATE_SZ \
+                CERT_HEADER_SZ + \
+                (MAX_X509_SIZE + CERT_HEADER_SZ) * MAX_CHAIN_DEPTH
+#endif
+
+/* max size of a handshake message, currently set to the certificate */
+#ifndef MAX_HANDSHAKE_SZ
+    #define MAX_HANDSHAKE_SZ MAX_CERTIFICATE_SZ
+#endif
+
 #ifndef SESSION_TICKET_LEN
     #define SESSION_TICKET_LEN 256
+#endif
+
+#ifndef SESSION_TICKET_HINT_DEFAULT
+    #define SESSION_TICKET_HINT_DEFAULT 300
 #endif
 
 
@@ -947,8 +1148,8 @@ WOLFSSL_LOCAL int DoApplicationData(WOLFSSL* ssl, byte* input, word32* inOutIdx)
 
 /* wolfSSL buffer type */
 typedef struct buffer {
-    word32 length;
     byte*  buffer;
+    word32 length;
 } buffer;
 
 
@@ -967,7 +1168,7 @@ enum {
 
 /* only the sniffer needs space in the buffer for extra MTU record(s) */
 #ifdef WOLFSSL_SNIFFER
-    #define MTU_EXTRA MAX_MTU * 3 
+    #define MTU_EXTRA MAX_MTU * 3
 #else
     #define MTU_EXTRA 0
 #endif
@@ -985,9 +1186,9 @@ enum {
     #define RECORD_SIZE MAX_RECORD_SIZE
 #else
     #ifdef WOLFSSL_DTLS
-        #define RECORD_SIZE MAX_MTU 
+        #define RECORD_SIZE MAX_MTU
     #else
-        #define RECORD_SIZE 128 
+        #define RECORD_SIZE 128
     #endif
 #endif
 
@@ -1019,37 +1220,37 @@ enum {
 #endif
 
 typedef struct {
+    ALIGN16 byte staticBuffer[STATIC_BUFFER_LEN];
+    byte*  buffer;       /* place holder for static or dynamic buffer */
     word32 length;       /* total buffer length used */
     word32 idx;          /* idx to part of length already consumed */
-    byte*  buffer;       /* place holder for static or dynamic buffer */
     word32 bufferSize;   /* current buffer size */
-    ALIGN16 byte staticBuffer[STATIC_BUFFER_LEN];
     byte   dynamicFlag;  /* dynamic memory currently in use */
     byte   offset;       /* alignment offset attempt */
 } bufferStatic;
 
 /* Cipher Suites holder */
 typedef struct Suites {
-    int    setSuites;               /* user set suites from default */
-    byte   suites[MAX_SUITE_SZ];  
     word16 suiteSz;                 /* suite length in bytes        */
-    byte   hashSigAlgo[HELLO_EXT_SIGALGO_MAX]; /* sig/algo to offer */
     word16 hashSigAlgoSz;           /* SigAlgo extension length in bytes */
+    byte   suites[WOLFSSL_MAX_SUITE_SZ];
+    byte   hashSigAlgo[HELLO_EXT_SIGALGO_MAX]; /* sig/algo to offer */
+    byte   setSuites;               /* user set suites from default */
     byte   hashAlgo;                /* selected hash algorithm */
     byte   sigAlgo;                 /* selected sig algorithm */
 } Suites;
 
 
 WOLFSSL_LOCAL
-void InitSuites(Suites*, ProtocolVersion,
-                                     byte, byte, byte, byte, byte, byte, int);
+void InitSuites(Suites*, ProtocolVersion, word16, word16, word16, word16,
+                word16, word16, int);
 WOLFSSL_LOCAL
 int  SetCipherList(Suites*, const char* list);
 
 #ifndef PSK_TYPES_DEFINED
-    typedef unsigned int (*psk_client_callback)(WOLFSSL*, const char*, char*,
+    typedef unsigned int (*wc_psk_client_callback)(WOLFSSL*, const char*, char*,
                           unsigned int, unsigned char*, unsigned int);
-    typedef unsigned int (*psk_server_callback)(WOLFSSL*, const char*,
+    typedef unsigned int (*wc_psk_server_callback)(WOLFSSL*, const char*,
                           unsigned char*, unsigned int);
 #endif /* PSK_TYPES_DEFINED */
 
@@ -1066,25 +1267,25 @@ struct WOLFSSL_CIPHER {
 };
 
 
-typedef struct OCSP_Entry OCSP_Entry;
+typedef struct OcspEntry OcspEntry;
 
-#ifdef SHA_DIGEST_SIZE
-    #define OCSP_DIGEST_SIZE SHA_DIGEST_SIZE
+#ifdef NO_SHA
+    #define OCSP_DIGEST_SIZE SHA256_DIGEST_SIZE
 #else
-    #define OCSP_DIGEST_SIZE 160
+    #define OCSP_DIGEST_SIZE SHA_DIGEST_SIZE
 #endif
 
-#ifdef NO_ASN 
+#ifdef NO_ASN
     /* no_asn won't have */
     typedef struct CertStatus CertStatus;
 #endif
 
-struct OCSP_Entry {
-    OCSP_Entry* next;                        /* next entry             */
-    byte    issuerHash[OCSP_DIGEST_SIZE];    /* issuer hash            */ 
-    byte    issuerKeyHash[OCSP_DIGEST_SIZE]; /* issuer public key hash */
-    CertStatus* status;                      /* OCSP response list     */
-    int         totalStatus;                 /* number on list         */
+struct OcspEntry {
+    OcspEntry*  next;                            /* next entry             */
+    byte        issuerHash[OCSP_DIGEST_SIZE];    /* issuer hash            */
+    byte        issuerKeyHash[OCSP_DIGEST_SIZE]; /* issuer public key hash */
+    CertStatus* status;                          /* OCSP response list     */
+    int         totalStatus;                     /* number on list         */
 };
 
 
@@ -1095,7 +1296,7 @@ struct OCSP_Entry {
 /* wolfSSL OCSP controller */
 struct WOLFSSL_OCSP {
     WOLFSSL_CERT_MANAGER* cm;            /* pointer back to cert manager */
-    OCSP_Entry*          ocspList;      /* OCSP response list */
+    OcspEntry*            ocspList;      /* OCSP response list */
     wolfSSL_Mutex         ocspLock;      /* OCSP list lock */
 };
 
@@ -1105,21 +1306,21 @@ struct WOLFSSL_OCSP {
 
 typedef struct CRL_Entry CRL_Entry;
 
-#ifdef SHA_DIGEST_SIZE
-    #define CRL_DIGEST_SIZE SHA_DIGEST_SIZE
+#ifdef NO_SHA
+    #define CRL_DIGEST_SIZE SHA256_DIGEST_SIZE
 #else
-    #define CRL_DIGEST_SIZE 160
+    #define CRL_DIGEST_SIZE SHA_DIGEST_SIZE
 #endif
 
-#ifdef NO_ASN 
+#ifdef NO_ASN
     typedef struct RevokedCert RevokedCert;
 #endif
 
 /* Complete CRL */
 struct CRL_Entry {
     CRL_Entry* next;                      /* next entry */
-    byte    issuerHash[CRL_DIGEST_SIZE];  /* issuer hash                 */ 
-    /* byte    crlHash[CRL_DIGEST_SIZE];      raw crl data hash           */ 
+    byte    issuerHash[CRL_DIGEST_SIZE];  /* issuer hash                 */
+    /* byte    crlHash[CRL_DIGEST_SIZE];      raw crl data hash           */
     /* restore the hash here if needed for optimized comparisons */
     byte    lastDate[MAX_DATE_SIZE]; /* last date updated  */
     byte    nextDate[MAX_DATE_SIZE]; /* next update date   */
@@ -1143,20 +1344,26 @@ struct CRL_Monitor {
     typedef struct WOLFSSL_CRL WOLFSSL_CRL;
 #endif
 
+#if defined(HAVE_CRL) && defined(NO_FILESYSTEM)
+    #undef HAVE_CRL_MONITOR
+#endif
+
 /* wolfSSL CRL controller */
 struct WOLFSSL_CRL {
     WOLFSSL_CERT_MANAGER* cm;            /* pointer back to cert manager */
-    CRL_Entry*           crlList;       /* our CRL list */
+    CRL_Entry*            crlList;       /* our CRL list */
     wolfSSL_Mutex         crlLock;       /* CRL list lock */
-    CRL_Monitor          monitors[2];   /* PEM and DER possible */
+    CRL_Monitor           monitors[2];   /* PEM and DER possible */
 #ifdef HAVE_CRL_MONITOR
-    pthread_t            tid;           /* monitoring thread */
-    int                  mfd;           /* monitor fd, -1 if no init yet */
+    pthread_cond_t        cond;          /* condition to signal setup */
+    pthread_t             tid;           /* monitoring thread */
+    int                   mfd;           /* monitor fd, -1 if no init yet */
+    int                   setup;         /* thread is setup predicate */
 #endif
 };
 
 
-#ifdef NO_ASN 
+#ifdef NO_ASN
     typedef struct Signer Signer;
 #endif
 
@@ -1168,21 +1375,27 @@ struct WOLFSSL_CRL {
 /* wolfSSL Certificate Manager */
 struct WOLFSSL_CERT_MANAGER {
     Signer*         caTable[CA_TABLE_SIZE]; /* the CA signer table */
-    wolfSSL_Mutex    caLock;             /* CA list lock */
-    CallbackCACache caCacheCallback;    /* CA cache addition callback */
-    void*           heap;               /* heap helper */
-    WOLFSSL_CRL*     crl;                /* CRL checker */
-    byte            crlEnabled;         /* is CRL on ? */
-    byte            crlCheckAll;        /* always leaf, but all ? */
-    CbMissingCRL    cbMissingCRL;       /* notify through cb of missing crl */
-    WOLFSSL_OCSP*    ocsp;               /* OCSP checker */
-    byte            ocspEnabled;        /* is OCSP on ? */
-    byte            ocspSendNonce;      /* send the OCSP nonce ? */
-    byte            ocspUseOverrideURL; /* ignore cert's responder, override */
-    char*           ocspOverrideURL;    /* use this responder */
-    void*           ocspIOCtx;          /* I/O callback CTX */
-    CbOCSPIO        ocspIOCb;           /* I/O callback for OCSP lookup */
-    CbOCSPRespFree  ocspRespFreeCb;     /* Frees OCSP Response from IO Cb */
+    void*           heap;                /* heap helper */
+    WOLFSSL_CRL*    crl;                 /* CRL checker */
+    WOLFSSL_OCSP*   ocsp;                /* OCSP checker */
+#if !defined(NO_WOLFSSL_SEVER) && (defined(HAVE_CERTIFICATE_STATUS_REQUEST) \
+                               ||  defined(HAVE_CERTIFICATE_STATUS_REQUEST_V2))
+    WOLFSSL_OCSP*   ocsp_stapling;       /* OCSP checker for OCSP stapling */
+#endif
+    char*           ocspOverrideURL;     /* use this responder */
+    void*           ocspIOCtx;           /* I/O callback CTX */
+    CallbackCACache caCacheCallback;     /* CA cache addition callback */
+    CbMissingCRL    cbMissingCRL;        /* notify through cb of missing crl */
+    CbOCSPIO        ocspIOCb;            /* I/O callback for OCSP lookup */
+    CbOCSPRespFree  ocspRespFreeCb;      /* Frees OCSP Response from IO Cb */
+    wolfSSL_Mutex   caLock;              /* CA list lock */
+    byte            crlEnabled;          /* is CRL on ? */
+    byte            crlCheckAll;         /* always leaf, but all ? */
+    byte            ocspEnabled;         /* is OCSP on ? */
+    byte            ocspCheckAll;        /* always leaf, but all ? */
+    byte            ocspSendNonce;       /* send the OCSP nonce ? */
+    byte            ocspUseOverrideURL;  /* ignore cert's responder, override */
+    byte            ocspStaplingEnabled; /* is OCSP Stapling on ? */
 };
 
 WOLFSSL_LOCAL int CM_SaveCertCache(WOLFSSL_CERT_MANAGER*, const char*);
@@ -1249,8 +1462,9 @@ typedef struct Keys {
     word16 dtls_peer_handshake_number;
     word16 dtls_expected_peer_handshake_number;
 
-    word16 dtls_epoch;                          /* Current tx epoch    */
     word32 dtls_sequence_number;                /* Current tx sequence */
+    word32 dtls_prev_sequence_number;           /* Previous epoch's seq number*/
+    word16 dtls_epoch;                          /* Current tx epoch    */
     word16 dtls_handshake_number;               /* Current tx handshake seq */
 #endif
 
@@ -1262,16 +1476,20 @@ typedef struct Keys {
 
 
 
-/* RFC 6066 TLS Extensions */
+/** TLS Extensions - RFC 6066 */
 #ifdef HAVE_TLS_EXTENSIONS
 
 typedef enum {
-    SERVER_NAME_INDICATION = 0x0000,
-    MAX_FRAGMENT_LENGTH    = 0x0001,
-    TRUNCATED_HMAC         = 0x0004,
-    ELLIPTIC_CURVES        = 0x000a,
-    SESSION_TICKET         = 0x0023,
-    SECURE_RENEGOTIATION   = 0xff01
+    TLSX_SERVER_NAME                = 0x0000, /* a.k.a. SNI  */
+    TLSX_MAX_FRAGMENT_LENGTH        = 0x0001,
+    TLSX_TRUNCATED_HMAC             = 0x0004,
+    TLSX_STATUS_REQUEST             = 0x0005, /* a.k.a. OCSP stappling   */
+    TLSX_SUPPORTED_GROUPS           = 0x000a, /* a.k.a. Supported Curves */
+    TLSX_APPLICATION_LAYER_PROTOCOL = 0x0010, /* a.k.a. ALPN */
+    TLSX_STATUS_REQUEST_V2          = 0x0011, /* a.k.a. OCSP stappling v2 */
+    TLSX_QUANTUM_SAFE_HYBRID        = 0x0018, /* a.k.a. QSH  */
+    TLSX_SESSION_TICKET             = 0x0023,
+    TLSX_RENEGOTIATION_INFO         = 0xff01
 } TLSX_Type;
 
 typedef struct TLSX {
@@ -1284,6 +1502,7 @@ typedef struct TLSX {
 WOLFSSL_LOCAL TLSX*  TLSX_Find(TLSX* list, TLSX_Type type);
 WOLFSSL_LOCAL void   TLSX_FreeAll(TLSX* list);
 WOLFSSL_LOCAL int    TLSX_SupportExtensions(WOLFSSL* ssl);
+WOLFSSL_LOCAL int    TLSX_PopulateExtensions(WOLFSSL* ssl, byte isRequest);
 
 #ifndef NO_WOLFSSL_CLIENT
 WOLFSSL_LOCAL word16 TLSX_GetRequestSize(WOLFSSL* ssl);
@@ -1297,19 +1516,23 @@ WOLFSSL_LOCAL word16 TLSX_WriteResponse(WOLFSSL* ssl, byte* output);
 
 WOLFSSL_LOCAL int    TLSX_Parse(WOLFSSL* ssl, byte* input, word16 length,
                                                 byte isRequest, Suites *suites);
-                                                
-#elif defined(HAVE_SNI)                  \
-   || defined(HAVE_MAX_FRAGMENT)         \
-   || defined(HAVE_TRUNCATED_HMAC)       \
-   || defined(HAVE_SUPPORTED_CURVES)     \
-   || defined(HAVE_SECURE_RENEGOTIATION) \
-   || defined(HAVE_SESSION_TICKET)
+
+#elif defined(HAVE_SNI)                           \
+   || defined(HAVE_MAX_FRAGMENT)                  \
+   || defined(HAVE_TRUNCATED_HMAC)                \
+   || defined(HAVE_CERTIFICATE_STATUS_REQUEST)    \
+   || defined(HAVE_CERTIFICATE_STATUS_REQUEST_V2) \
+   || defined(HAVE_SUPPORTED_CURVES)              \
+   || defined(HAVE_ALPN)                          \
+   || defined(HAVE_QSH)                           \
+   || defined(HAVE_SESSION_TICKET)                \
+   || defined(HAVE_SECURE_RENEGOTIATION)
 
 #error Using TLS extensions requires HAVE_TLS_EXTENSIONS to be defined.
 
 #endif /* HAVE_TLS_EXTENSIONS */
 
-/* Server Name Indication */
+/** Server Name Indication - RFC 6066 (session 3) */
 #ifdef HAVE_SNI
 
 typedef struct SNI {
@@ -1337,19 +1560,81 @@ WOLFSSL_LOCAL int    TLSX_SNI_GetFromBuffer(const byte* buffer, word32 bufferSz,
 
 #endif /* HAVE_SNI */
 
-/* Maximum Fragment Length */
+/* Application-Layer Protocol Negotiation - RFC 7301 */
+#ifdef HAVE_ALPN
+typedef struct ALPN {
+    char*        protocol_name; /* ALPN protocol name */
+    struct ALPN* next;          /* List Behavior      */
+    byte         options;       /* Behaviour options */
+    byte         negociated;    /* ALPN protocol negociated or not */
+} ALPN;
+
+WOLFSSL_LOCAL int TLSX_ALPN_GetRequest(TLSX* extensions,
+                                       void** data, word16 *dataSz);
+
+WOLFSSL_LOCAL int TLSX_UseALPN(TLSX** extensions, const void* data,
+                               word16 size, byte options);
+
+WOLFSSL_LOCAL int TLSX_ALPN_SetOptions(TLSX** extensions, const byte option);
+
+#endif /* HAVE_ALPN */
+
+/** Maximum Fragment Length Negotiation - RFC 6066 (session 4) */
 #ifdef HAVE_MAX_FRAGMENT
 
 WOLFSSL_LOCAL int TLSX_UseMaxFragment(TLSX** extensions, byte mfl);
 
 #endif /* HAVE_MAX_FRAGMENT */
 
+/** Truncated HMAC - RFC 6066 (session 7) */
 #ifdef HAVE_TRUNCATED_HMAC
 
 WOLFSSL_LOCAL int TLSX_UseTruncatedHMAC(TLSX** extensions);
 
 #endif /* HAVE_TRUNCATED_HMAC */
 
+/** Certificate Status Request - RFC 6066 (session 8) */
+#ifdef HAVE_CERTIFICATE_STATUS_REQUEST
+
+typedef struct {
+    byte status_type;
+    byte options;
+    union {
+        OcspRequest ocsp;
+    } request;
+} CertificateStatusRequest;
+
+WOLFSSL_LOCAL int   TLSX_UseCertificateStatusRequest(TLSX** extensions,
+                                                byte status_type, byte options);
+WOLFSSL_LOCAL int   TLSX_CSR_InitRequest(TLSX* extensions, DecodedCert* cert);
+WOLFSSL_LOCAL void* TLSX_CSR_GetRequest(TLSX* extensions);
+WOLFSSL_LOCAL int   TLSX_CSR_ForceRequest(WOLFSSL* ssl);
+
+#endif
+
+/** Certificate Status Request v2 - RFC 6961 */
+#ifdef HAVE_CERTIFICATE_STATUS_REQUEST_V2
+
+typedef struct CSRIv2 {
+    byte status_type;
+    byte options;
+    word16 requests;
+    union {
+        OcspRequest ocsp[1 + MAX_CHAIN_DEPTH];
+    } request;
+    struct CSRIv2* next;
+} CertificateStatusRequestItemV2;
+
+WOLFSSL_LOCAL int   TLSX_UseCertificateStatusRequestV2(TLSX** extensions,
+                                                byte status_type, byte options);
+WOLFSSL_LOCAL int   TLSX_CSR2_InitRequests(TLSX* extensions, DecodedCert* cert, byte isPeer);
+WOLFSSL_LOCAL void* TLSX_CSR2_GetRequest(TLSX* extensions, byte status_type,
+                                                                    byte index);
+WOLFSSL_LOCAL int   TLSX_CSR2_ForceRequest(WOLFSSL* ssl);
+
+#endif
+
+/** Supported Elliptic Curves - RFC 4492 (session 4) */
 #ifdef HAVE_SUPPORTED_CURVES
 
 typedef struct EllipticCurve {
@@ -1366,6 +1651,7 @@ WOLFSSL_LOCAL int TLSX_ValidateEllipticCurves(WOLFSSL* ssl, byte first,
 
 #endif /* HAVE_SUPPORTED_CURVES */
 
+/** Renegotiation Indication - RFC 5746 */
 #ifdef HAVE_SECURE_RENEGOTIATION
 
 enum key_cache_state {
@@ -1375,7 +1661,6 @@ enum key_cache_state {
     SCR_CACHE_PARTIAL,          /* partial restore to real keys */
     SCR_CACHE_COMPLETE          /* complete restore to real keys */
 };
-
 
 /* Additional Conection State according to rfc5746 section 3.1 */
 typedef struct SecureRenegotiation {
@@ -1392,6 +1677,7 @@ WOLFSSL_LOCAL int TLSX_UseSecureRenegotiation(TLSX** extensions);
 
 #endif /* HAVE_SECURE_RENEGOTIATION */
 
+/** Session Ticket - RFC 5077 (session 3.2) */
 #ifdef HAVE_SESSION_TICKET
 
 typedef struct SessionTicket {
@@ -1400,28 +1686,73 @@ typedef struct SessionTicket {
     word16 size;
 } SessionTicket;
 
-WOLFSSL_LOCAL int  TLSX_UseSessionTicket(TLSX** extensions, 
+WOLFSSL_LOCAL int  TLSX_UseSessionTicket(TLSX** extensions,
                                                          SessionTicket* ticket);
 WOLFSSL_LOCAL SessionTicket* TLSX_SessionTicket_Create(word32 lifetime,
                                                        byte* data, word16 size);
 WOLFSSL_LOCAL void TLSX_SessionTicket_Free(SessionTicket* ticket);
+
 #endif /* HAVE_SESSION_TICKET */
+
+/** Quantum-Safe-Hybrid - draft-whyte-qsh-tls12-00 */
+#ifdef HAVE_QSH
+
+typedef struct QSHScheme {
+    struct QSHScheme* next; /* List Behavior   */
+    byte*             PK;
+    word16            name; /* QSHScheme Names */
+    word16            PKLen;
+} QSHScheme;
+
+typedef struct QSHkey {
+    struct QSHKey* next;
+    word16 name;
+    buffer pub;
+    buffer pri;
+} QSHKey;
+
+typedef struct QSHSecret {
+    QSHScheme* list;
+    buffer* SerSi;
+    buffer* CliSi;
+} QSHSecret;
+
+/* used in key exchange during handshake */
+WOLFSSL_LOCAL int TLSX_QSHCipher_Parse(WOLFSSL* ssl, const byte* input,
+                                                  word16 length, byte isServer);
+WOLFSSL_LOCAL word16 TLSX_QSHPK_Write(QSHScheme* list, byte* output);
+WOLFSSL_LOCAL word16 TLSX_QSH_GetSize(QSHScheme* list, byte isRequest);
+
+/* used by api for setting a specific QSH scheme */
+WOLFSSL_LOCAL int TLSX_UseQSHScheme(TLSX** extensions, word16 name,
+                                                     byte* pKey, word16 pKeySz);
+
+/* used when parsing in QSHCipher structs */
+WOLFSSL_LOCAL int QSH_Decrypt(QSHKey* key, byte* in, word32 szIn,
+                                                      byte* out, word16* szOut);
+#ifndef NO_WOLFSSL_SERVER
+WOLFSSL_LOCAL int TLSX_ValidateQSHScheme(TLSX** extensions, word16 name);
+#endif
+
+#endif /* HAVE_QSH */
 
 /* wolfSSL context type */
 struct WOLFSSL_CTX {
     WOLFSSL_METHOD* method;
     wolfSSL_Mutex   countMutex;    /* reference count mutex */
     int         refCount;         /* reference count */
+#ifndef NO_DH
+    buffer      serverDH_P;
+    buffer      serverDH_G;
+#endif
 #ifndef NO_CERTS
     buffer      certificate;
     buffer      certChain;
                  /* chain after self, in DER, with leading size for each cert */
     buffer      privateKey;
-    buffer      serverDH_P;
-    buffer      serverDH_G;
     WOLFSSL_CERT_MANAGER* cm;      /* our cert manager, ctx owns SSL will use */
 #endif
-    Suites      suites;
+    Suites*     suites;           /* make dynamic, user may not need/set */
     void*       heap;             /* for user memory overrides */
     byte        verifyPeer;
     byte        verifyNone;
@@ -1437,6 +1768,10 @@ struct WOLFSSL_CTX {
     byte        partialWrite;     /* only one msg per write call */
     byte        quietShutdown;    /* don't send close notify */
     byte        groupMessages;    /* group handshake messages before sending */
+    byte        minDowngrade;     /* minimum downgrade version */
+#ifndef NO_DH
+    word16      minDhKeySz;       /* minimum DH key size */
+#endif
     CallbackIORecv CBIORecv;
     CallbackIOSend CBIOSend;
 #ifdef WOLFSSL_DTLS
@@ -1450,8 +1785,8 @@ struct WOLFSSL_CTX {
 #endif
 #ifndef NO_PSK
     byte        havePSK;                /* psk key set by user */
-    psk_client_callback client_psk_cb;  /* client callback */
-    psk_server_callback server_psk_cb;  /* server callback */
+    wc_psk_client_callback client_psk_cb;  /* client callback */
+    wc_psk_server_callback server_psk_cb;  /* server callback */
     char        server_hint[MAX_PSK_ID_LEN];
 #endif /* NO_PSK */
 #ifdef HAVE_ANON
@@ -1459,8 +1794,13 @@ struct WOLFSSL_CTX {
 #endif /* HAVE_ANON */
 #if defined(OPENSSL_EXTRA) || defined(HAVE_WEBSERVER)
     pem_password_cb passwd_cb;
-    void*            userdata;
+    void*           userdata;
 #endif /* OPENSSL_EXTRA */
+#ifdef HAVE_STUNNEL
+    void*           ex_data[MAX_EX_DATA];
+    CallbackSniRecv sniRecvCb;
+    void*           sniRecvCbArg;
+#endif
 #ifdef HAVE_OCSP
     WOLFSSL_OCSP      ocsp;
 #endif
@@ -1469,6 +1809,20 @@ struct WOLFSSL_CTX {
 #endif
 #ifdef HAVE_TLS_EXTENSIONS
     TLSX* extensions;                  /* RFC 6066 TLS Extensions data */
+    #ifndef NO_WOLFSSL_SERVER
+        #if defined(HAVE_CERTIFICATE_STATUS_REQUEST) \
+         || defined(HAVE_CERTIFICATE_STATUS_REQUEST_V2)
+            OcspRequest* certOcspRequest;
+        #endif
+        #if defined(HAVE_CERTIFICATE_STATUS_REQUEST_V2)
+            OcspRequest* chainOcspRequest[MAX_CHAIN_DEPTH];
+        #endif
+    #endif
+    #if defined(HAVE_SESSION_TICKET) && !defined(NO_WOLFSSL_SEVER)
+        SessionTicketEncCb ticketEncCb;   /* enc/dec session ticket Cb */
+        void*              ticketEncCtx;  /* session encrypt context */
+        int                ticketHint;    /* ticket hint in seconds */
+    #endif
 #endif
 #ifdef ATOMIC_USER
     CallbackMacEncrypt    MacEncryptCb;    /* Atomic User Mac/Encrypt Cb */
@@ -1479,7 +1833,7 @@ struct WOLFSSL_CTX {
         CallbackEccSign   EccSignCb;    /* User EccSign   Callback handler */
         CallbackEccVerify EccVerifyCb;  /* User EccVerify Callback handler */
     #endif /* HAVE_ECC */
-    #ifndef NO_RSA 
+    #ifndef NO_RSA
         CallbackRsaSign   RsaSignCb;    /* User RsaSign   Callback handler */
         CallbackRsaVerify RsaVerifyCb;  /* User RsaVerify Callback handler */
         CallbackRsaEnc    RsaEncCb;     /* User Rsa Public Encrypt  handler */
@@ -1510,6 +1864,10 @@ int ProcessOldClientHello(WOLFSSL* ssl, const byte* input, word32* inOutIdx,
 
 /* All cipher suite related info */
 typedef struct CipherSpecs {
+    word16 key_size;
+    word16 iv_size;
+    word16 block_size;
+    word16 aead_mac_size;
     byte bulk_cipher_algorithm;
     byte cipher_type;               /* block, stream, or aead */
     byte mac_algorithm;
@@ -1518,10 +1876,6 @@ typedef struct CipherSpecs {
     byte hash_size;
     byte pad_size;
     byte static_ecdh;
-    word16 key_size;
-    word16 iv_size;
-    word16 block_size;
-    word16 aead_mac_size;
 } CipherSpecs;
 
 
@@ -1529,7 +1883,7 @@ void InitCipherSpecs(CipherSpecs* cs);
 
 
 /* Supported Message Authentication Codes from page 43 */
-enum MACAlgorithm { 
+enum MACAlgorithm {
     no_mac,
     md5_mac,
     sha_mac,
@@ -1543,10 +1897,10 @@ enum MACAlgorithm {
 
 
 /* Supported Key Exchange Protocols */
-enum KeyExchangeAlgorithm { 
+enum KeyExchangeAlgorithm {
     no_kea,
-    rsa_kea, 
-    diffie_hellman_kea, 
+    rsa_kea,
+    diffie_hellman_kea,
     fortezza_kea,
     psk_kea,
     dhe_psk_kea,
@@ -1571,21 +1925,9 @@ enum EccCurves {
 };
 
 
-/* Supprted ECC Named Curves */
-enum EccNamedCurves {
-    secp256r1 = 0x17,         /* default, OpenSSL also calls it prime256v1 */
-    secp384r1 = 0x18,
-    secp521r1 = 0x19,
-
-    secp160r1 = 0x10,
-    secp192r1 = 0x13,        /*           Openssl also call it prime192v1 */
-    secp224r1 = 0x15
-};
-
-
 /* Valid client certificate request types from page 27 */
-enum ClientCertificateType {    
-    rsa_sign            = 1, 
+enum ClientCertificateType {
+    rsa_sign            = 1,
     dss_sign            = 2,
     rsa_fixed_dh        = 3,
     dss_fixed_dh        = 4,
@@ -1628,6 +1970,9 @@ typedef struct Ciphers {
 #ifdef BUILD_RABBIT
     Rabbit* rabbit;
 #endif
+#ifdef HAVE_IDEA
+    Idea* idea;
+#endif
     byte    setup;       /* have we set it up flag for detection */
 } Ciphers;
 
@@ -1660,6 +2005,9 @@ typedef struct Hashes {
     #ifdef WOLFSSL_SHA384
         byte sha384[SHA384_DIGEST_SIZE];
     #endif
+    #ifdef WOLFSSL_SHA512
+        byte sha512[SHA512_DIGEST_SIZE];
+    #endif
 } Hashes;
 
 
@@ -1679,11 +2027,11 @@ struct WOLFSSL_X509_CHAIN {
 
 /* wolfSSL session type */
 struct WOLFSSL_SESSION {
+    word32       bornOn;                        /* create time in seconds   */
+    word32       timeout;                       /* timeout in seconds       */
     byte         sessionID[ID_LEN];             /* id for protocol */
     byte         sessionIDSz;
     byte         masterSecret[SECRET_LEN];      /* stored secret */
-    word32       bornOn;                        /* create time in seconds   */
-    word32       timeout;                       /* timeout in seconds       */
 #ifdef SESSION_CERTS
     WOLFSSL_X509_CHAIN chain;                    /* peer cert chain, static  */
     ProtocolVersion version;                    /* which version was used */
@@ -1691,12 +2039,15 @@ struct WOLFSSL_SESSION {
     byte            cipherSuite;                /* 2nd byte, actual suite */
 #endif
 #ifndef NO_CLIENT_CACHE
-    byte         serverID[SERVER_ID_LEN];       /* for easier client lookup */
     word16       idLen;                         /* serverID length */
+    byte         serverID[SERVER_ID_LEN];       /* for easier client lookup */
 #endif
 #ifdef HAVE_SESSION_TICKET
-    byte         ticket[SESSION_TICKET_LEN];
     word16       ticketLen;
+    byte         ticket[SESSION_TICKET_LEN];
+#endif
+#ifdef HAVE_STUNNEL
+    void*        ex_data[MAX_EX_DATA];
 #endif
 };
 
@@ -1732,14 +2083,15 @@ enum ConnectState {
 enum AcceptState {
     ACCEPT_BEGIN = 0,
     ACCEPT_CLIENT_HELLO_DONE,
-    HELLO_VERIFY_SENT,
     ACCEPT_FIRST_REPLY_DONE,
     SERVER_HELLO_SENT,
     CERT_SENT,
+    CERT_STATUS_SENT,
     KEY_EXCHANGE_SENT,
     CERT_REQ_SENT,
     SERVER_HELLO_DONE,
     ACCEPT_SECOND_REPLY_DONE,
+    TICKET_SENT,
     CHANGE_CIPHER_SENT,
     ACCEPT_FINISHED_DONE,
     ACCEPT_THIRD_REPLY_DONE
@@ -1747,19 +2099,9 @@ enum AcceptState {
 
 
 typedef struct Buffers {
-#ifndef NO_CERTS
-    buffer          certificate;            /* WOLFSSL_CTX owns, unless we own */
-    buffer          key;                    /* WOLFSSL_CTX owns, unless we own */
-    buffer          certChain;              /* WOLFSSL_CTX owns, unless we own */
-                 /* chain after self, in DER, with leading size for each cert */
-    buffer          serverDH_P;             /* WOLFSSL_CTX owns, unless we own */
-    buffer          serverDH_G;             /* WOLFSSL_CTX owns, unless we own */
-    buffer          serverDH_Pub;
-    buffer          serverDH_Priv;
-#endif
-    buffer          domainName;             /* for client check */
     bufferStatic    inputBuffer;
     bufferStatic    outputBuffer;
+    buffer          domainName;             /* for client check */
     buffer          clearOutputBuffer;
     int             prevSent;              /* previous plain text bytes sent
                                               when got WANT_WRITE            */
@@ -1769,8 +2111,23 @@ typedef struct Buffers {
     byte            weOwnCertChain;        /* SSL own cert chain flag */
     byte            weOwnKey;              /* SSL own key  flag */
     byte            weOwnDH;               /* SSL own dh (p,g)  flag */
+#ifndef NO_DH
+    buffer          serverDH_P;            /* WOLFSSL_CTX owns, unless we own */
+    buffer          serverDH_G;            /* WOLFSSL_CTX owns, unless we own */
+    buffer          serverDH_Pub;
+    buffer          serverDH_Priv;
+#endif
+#ifndef NO_CERTS
+    buffer          certificate;           /* WOLFSSL_CTX owns, unless we own */
+    buffer          key;                   /* WOLFSSL_CTX owns, unless we own */
+    buffer          certChain;             /* WOLFSSL_CTX owns, unless we own */
+                 /* chain after self, in DER, with leading size for each cert */
+#endif
 #ifdef WOLFSSL_DTLS
     WOLFSSL_DTLS_CTX dtlsCtx;               /* DTLS connection context */
+    #ifndef NO_WOLFSSL_SERVER
+        buffer       dtlsCookieSecret;      /* DTLS cookie secret */
+    #endif /* NO_WOLFSSL_SERVER */
 #endif
 #ifdef HAVE_PK_CALLBACKS
     #ifdef HAVE_ECC
@@ -1783,65 +2140,89 @@ typedef struct Buffers {
 } Buffers;
 
 typedef struct Options {
-    byte            sessionCacheOff;
-    byte            sessionCacheFlushOff;
+#ifndef NO_PSK
+    wc_psk_client_callback client_psk_cb;
+    wc_psk_server_callback server_psk_cb;
+    word16            havePSK:1;            /* psk key set by user */
+#endif /* NO_PSK */
+
+    /* on/off or small bit flags, optimize layout */
+    word16            sendVerify:2;     /* false = 0, true = 1, sendBlank = 2 */
+    word16            sessionCacheOff:1;
+    word16            sessionCacheFlushOff:1;
+    word16            side:1;             /* client or server end */
+    word16            verifyPeer:1;
+    word16            verifyNone:1;
+    word16            failNoCert:1;
+    word16            downgrade:1;        /* allow downgrade of versions */
+    word16            resuming:1;
+    word16            haveSessionId:1;    /* server may not send */
+    word16            tls:1;              /* using TLS ? */
+    word16            tls1_1:1;           /* using TLSv1.1+ ? */
+    word16            dtls:1;             /* using datagrams ? */
+    word16            connReset:1;        /* has the peer reset */
+    word16            isClosed:1;         /* if we consider conn closed */
+    word16            closeNotify:1;      /* we've recieved a close notify */
+    word16            sentNotify:1;       /* we've sent a close notify */
+    word16            usingCompression:1; /* are we using compression */
+    word16            haveRSA:1;          /* RSA available */
+    word16            haveDH:1;           /* server DH parms set by user */
+    word16            haveNTRU:1;         /* server NTRU  private key loaded */
+    byte              haveQSH:1;          /* have QSH ability */
+    word16            haveECDSAsig:1;     /* server ECDSA signed cert */
+    word16            haveStaticECC:1;    /* static server ECC private key */
+    word16            havePeerCert:1;     /* do we have peer's cert */
+    word16            havePeerVerify:1;   /* and peer's cert verify */
+    word16            usingPSK_cipher:1;  /* are using psk as cipher */
+    word16            usingAnon_cipher:1; /* are we using an anon cipher */
+    word16            sendAlertState:1;   /* nonblocking resume */
+    word16            partialWrite:1;     /* only one msg per write call */
+    word16            quietShutdown:1;    /* don't send close notify */
+    word16            certOnly:1;         /* stop once we get cert */
+    word16            groupMessages:1;    /* group handshake messages */
+    word16            usingNonblock:1;    /* are we using nonblocking socket */
+    word16            saveArrays:1;       /* save array Memory for user get keys
+                                           or psk */
+#ifdef HAVE_POLY1305
+    word16            oldPoly:1;        /* set when to use old rfc way of poly*/
+#endif
+#ifdef HAVE_ANON
+    word16            haveAnon:1;       /* User wants to allow Anon suites */
+#endif
+#ifdef HAVE_SESSION_TICKET
+    word16            createTicket:1;     /* Server to create new Ticket */
+    word16            useTicket:1;        /* Use Ticket not session cache */
+#endif
+
+    /* need full byte values for this section */
+    byte            processReply;           /* nonblocking resume */
     byte            cipherSuite0;           /* first byte, normally 0 */
     byte            cipherSuite;            /* second byte, actual suite */
     byte            serverState;
     byte            clientState;
     byte            handShakeState;
     byte            handShakeDone;      /* at least one handshake complete */
-    byte            side;               /* client or server end */
-    byte            verifyPeer;
-    byte            verifyNone;
-    byte            failNoCert;
-    byte            downgrade;          /* allow downgrade of versions */
     byte            minDowngrade;       /* minimum downgrade version */
-    byte            sendVerify;         /* false = 0, true = 1, sendBlank = 2 */
-    byte            resuming;
-    byte            haveSessionId;      /* server may not send */
-    byte            tls;                /* using TLS ? */
-    byte            tls1_1;             /* using TLSv1.1+ ? */
-    byte            dtls;               /* using datagrams ? */
-    byte            connReset;          /* has the peer reset */
-    byte            isClosed;           /* if we consider conn closed */
-    byte            closeNotify;        /* we've recieved a close notify */
-    byte            sentNotify;         /* we've sent a close notify */
     byte            connectState;       /* nonblocking resume */
     byte            acceptState;        /* nonblocking resume */
-    byte            usingCompression;   /* are we using compression */
-    byte            haveRSA;            /* RSA available */
-    byte            haveDH;             /* server DH parms set by user */
-    byte            haveNTRU;           /* server NTRU  private key loaded */
-    byte            haveECDSAsig;       /* server ECDSA signed cert */
-    byte            haveStaticECC;      /* static server ECC private key */
-    byte            havePeerCert;       /* do we have peer's cert */
-    byte            havePeerVerify;     /* and peer's cert verify */
-    byte            usingPSK_cipher;    /* whether we're using psk as cipher */
-    byte            usingAnon_cipher;   /* whether we're using an anon cipher */
-    byte            sendAlertState;     /* nonblocking resume */ 
-    byte            processReply;       /* nonblocking resume */
-    byte            partialWrite;       /* only one msg per write call */
-    byte            quietShutdown;      /* don't send close notify */
-    byte            certOnly;           /* stop once we get cert */
-    byte            groupMessages;      /* group handshake messages */
-    byte            usingNonblock;      /* set when using nonblocking socket */
-    byte            saveArrays;         /* save array Memory for user get keys
-                                           or psk */
-#ifdef HAVE_POLY1305
-    byte            oldPoly;            /* set when to use old rfc way of poly*/
+#ifndef NO_DH
+    word16          minDhKeySz;         /* minimum DH key size */
+    word16          dhKeySz;            /* actual DH key size */
 #endif
-#ifndef NO_PSK
-    byte            havePSK;            /* psk key set by user */
-    psk_client_callback client_psk_cb;
-    psk_server_callback server_psk_cb;
-#endif /* NO_PSK */
-#ifdef HAVE_ANON
-    byte            haveAnon;           /* User wants to allow Anon suites */
-#endif /* HAVE_ANON */
+
 } Options;
 
 typedef struct Arrays {
+    byte*           pendingMsg;         /* defrag buffer */
+    word32          preMasterSz;        /* differs for DH, actual size */
+    word32          pendingMsgSz;       /* defrag buffer size */
+    word32          pendingMsgOffset;   /* current offset into defrag buffer */
+#ifndef NO_PSK
+    word32          psk_keySz;          /* acutal size */
+    char            client_identity[MAX_PSK_ID_LEN];
+    char            server_hint[MAX_PSK_ID_LEN];
+    byte            psk_key[MAX_PSK_KEY_LEN];
+#endif
     byte            clientRandom[RAN_LEN];
     byte            serverRandom[RAN_LEN];
     byte            sessionID[ID_LEN];
@@ -1852,13 +2233,7 @@ typedef struct Arrays {
     byte            cookie[MAX_COOKIE_LEN];
     byte            cookieSz;
 #endif
-#ifndef NO_PSK
-    char            client_identity[MAX_PSK_ID_LEN];
-    char            server_hint[MAX_PSK_ID_LEN];
-    byte            psk_key[MAX_PSK_KEY_LEN];
-    word32          psk_keySz;          /* acutal size */
-#endif
-    word32          preMasterSz;        /* differs for DH, actual size */
+    byte            pendingMsgType;    /* defrag buffer message type */
 } Arrays;
 
 #ifndef ASN_NAME_MAX
@@ -1883,7 +2258,7 @@ struct WOLFSSL_X509_NAME {
     #define EXTERNAL_SERIAL_SIZE 32
 #endif
 
-#ifdef NO_ASN 
+#ifdef NO_ASN
     typedef struct DNS_entry DNS_entry;
 #endif
 
@@ -1966,17 +2341,27 @@ typedef struct DtlsRecordLayerHeader {
 
 typedef struct DtlsPool {
     buffer          buf[DTLS_POOL_SZ];
+    word16          epoch[DTLS_POOL_SZ];
     int             used;
 } DtlsPool;
 
+
+typedef struct DtlsFrag {
+    word32 begin;
+    word32 end;
+    struct DtlsFrag* next;
+} DtlsFrag;
+
+
 typedef struct DtlsMsg {
     struct DtlsMsg* next;
-    word32          seq;       /* Handshake sequence number    */
-    word32          sz;        /* Length of whole mesage       */
-    word32          fragSz;    /* Length of fragments received */
-    byte            type;
     byte*           buf;
     byte*           msg;
+    DtlsFrag*       fragList;
+    word32          fragSz;    /* Length of fragments received */
+    word32          seq;       /* Handshake sequence number    */
+    word32          sz;        /* Length of whole mesage       */
+    byte            type;
 } DtlsMsg;
 
 
@@ -2001,6 +2386,7 @@ typedef struct MsgsReceived {
     word16 got_hello_verify_request:1;
     word16 got_session_ticket:1;
     word16 got_certificate:1;
+    word16 got_certificate_status:1;
     word16 got_server_key_exchange:1;
     word16 got_certificate_request:1;
     word16 got_server_hello_done:1;
@@ -2011,30 +2397,10 @@ typedef struct MsgsReceived {
 } MsgsReceived;
 
 
-/* wolfSSL ssl type */
-struct WOLFSSL {
-    WOLFSSL_CTX*     ctx;
-    int             error;
-    ProtocolVersion version;            /* negotiated version */
-    ProtocolVersion chVersion;          /* client hello version */
-    Suites*         suites;             /* only need during handshake */
-    Ciphers         encrypt;
-    Ciphers         decrypt;
-#ifdef HAVE_ONE_TIME_AUTH
-    OneTimeAuth     auth;
-#endif
-    CipherSpecs     specs;
-    Keys            keys;
-    MsgsReceived    msgsReceived;       /* peer messages received */
-    int             rfd;                /* read  file descriptor */
-    int             wfd;                /* write file descriptor */
-    int             rflags;             /* user read  flags */
-    int             wflags;             /* user write flags */
-    WOLFSSL_BIO*     biord;              /* socket bio read  to free/close */
-    WOLFSSL_BIO*     biowr;              /* socket bio write to free/close */
-    void*           IOCB_ReadCtx;
-    void*           IOCB_WriteCtx;
-    RNG*            rng;
+/* Handshake hashes */
+typedef struct HS_Hashes {
+    Hashes          verifyHashes;
+    Hashes          certHashes;         /* for cert verify */
 #ifndef NO_OLD_TLS
 #ifndef NO_SHA
     Sha             hashSha;            /* sha hash of handshake msgs */
@@ -2042,24 +2408,76 @@ struct WOLFSSL {
 #ifndef NO_MD5
     Md5             hashMd5;            /* md5 hash of handshake msgs */
 #endif
-#endif
+#endif /* NO_OLD_TLS */
 #ifndef NO_SHA256
     Sha256          hashSha256;         /* sha256 hash of handshake msgs */
 #endif
 #ifdef WOLFSSL_SHA384
     Sha384          hashSha384;         /* sha384 hash of handshake msgs */
 #endif
-    Hashes          verifyHashes;
-    Hashes          certHashes;         /* for cert verify */
-    Buffers         buffers;
-    Options         options;
+#ifdef WOLFSSL_SHA512
+    Sha512          hashSha512;         /* sha512 hash of handshake msgs */
+#endif
+} HS_Hashes;
+
+
+/* wolfSSL ssl type */
+struct WOLFSSL {
+    WOLFSSL_CTX*    ctx;
+    Suites*         suites;             /* only need during handshake */
     Arrays*         arrays;
-    WOLFSSL_SESSION  session;
-    VerifyCallback  verifyCallback;      /* cert verification callback */
-    void*           verifyCbCtx;         /* cert verify callback user ctx*/
+    HS_Hashes*      hsHashes;
+    void*           IOCB_ReadCtx;
+    void*           IOCB_WriteCtx;
+    WC_RNG*         rng;
+    void*           verifyCbCtx;        /* cert verify callback user ctx*/
+    VerifyCallback  verifyCallback;     /* cert verification callback */
+    void*           heap;               /* for user overrides */
+#ifndef NO_HANDSHAKE_DONE_CB
+    HandShakeDoneCb hsDoneCb;          /*  notify user handshake done */
+    void*           hsDoneCtx;         /*  user handshake cb context  */
+#endif
+    WOLFSSL_CIPHER  cipher;
+    hmacfp          hmac;
+    Ciphers         encrypt;
+    Ciphers         decrypt;
+    Buffers         buffers;
+    WOLFSSL_SESSION session;
+    WOLFSSL_ALERT_HISTORY alert_history;
+    int             error;
+    int             rfd;                /* read  file descriptor */
+    int             wfd;                /* write file descriptor */
+    int             rflags;             /* user read  flags */
+    int             wflags;             /* user write flags */
+    word32          timeout;            /* session timeout */
+    word32          fragOffset;         /* fragment offset */
+    word16          curSize;
+    RecordLayerHeader curRL;
+    MsgsReceived    msgsReceived;       /* peer messages received */
+    ProtocolVersion version;            /* negotiated version */
+    ProtocolVersion chVersion;          /* client hello version */
+    CipherSpecs     specs;
+    Keys            keys;
+    Options         options;
+#ifdef OPENSSL_EXTRA
+    WOLFSSL_BIO*     biord;              /* socket bio read  to free/close */
+    WOLFSSL_BIO*     biowr;              /* socket bio write to free/close */
+#endif
 #ifndef NO_RSA
     RsaKey*         peerRsaKey;
     byte            peerRsaKeyPresent;
+#endif
+#ifdef HAVE_QSH
+    QSHKey*         QSH_Key;
+    QSHKey*         peerQSHKey;
+    QSHSecret*      QSH_secret;
+    byte            isQSH;             /* is the handshake a QSH? */
+    byte            sendQSHKeys;       /* flag for if the client should sen
+                                          public keys */
+    byte            peerQSHKeyPresent;
+    byte            minRequest;
+    byte            maxRequest;
+    byte            user_set_QSHSchemes;
 #endif
 #ifdef HAVE_NTRU
     word16          peerNtruKeyLen;
@@ -2070,20 +2488,12 @@ struct WOLFSSL {
     ecc_key*        peerEccKey;              /* peer's  ECDHE key */
     ecc_key*        peerEccDsaKey;           /* peer's  ECDSA key */
     ecc_key*        eccTempKey;              /* private ECDHE key */
-    ecc_key*        eccDsaKey;               /* private ECDSA key */
-    word16          eccTempKeySz;            /* in octets 20 - 66 */
     word32          pkCurveOID;              /* curve Ecc_Sum     */
+    word16          eccTempKeySz;            /* in octets 20 - 66 */
     byte            peerEccKeyPresent;
     byte            peerEccDsaKeyPresent;
     byte            eccTempKeyPresent;
-    byte            eccDsaKeyPresent;
 #endif
-    hmacfp          hmac;
-    void*           heap;               /* for user overrides */
-    RecordLayerHeader curRL;
-    word16            curSize;
-    word32          timeout;            /* session timeout */
-    WOLFSSL_CIPHER   cipher;
 #ifdef HAVE_LIBZ
     z_stream        c_stream;           /* compression   stream */
     z_stream        d_stream;           /* decompression stream */
@@ -2111,11 +2521,14 @@ struct WOLFSSL {
 #ifdef KEEP_PEER_CERT
     WOLFSSL_X509     peerCert;           /* X509 peer cert */
 #endif
-#ifdef FORTRESS
+#if defined(FORTRESS) || defined(HAVE_STUNNEL)
     void*           ex_data[MAX_EX_DATA]; /* external data, for Fortress */
 #endif
 #ifdef HAVE_CAVIUM
     int              devId;            /* cavium device id to use */
+#endif
+#ifdef HAVE_ONE_TIME_AUTH
+    OneTimeAuth     auth;
 #endif
 #ifdef HAVE_TLS_EXTENSIONS
     TLSX* extensions;                  /* RFC 6066 TLS Extensions data */
@@ -2125,9 +2538,18 @@ struct WOLFSSL {
     #ifdef HAVE_TRUNCATED_HMAC
         byte truncated_hmac;
     #endif
+    #ifdef HAVE_CERTIFICATE_STATUS_REQUEST
+        byte status_request;
+    #endif
+    #ifdef HAVE_CERTIFICATE_STATUS_REQUEST_V2
+        byte status_request_v2;
+    #endif
     #ifdef HAVE_SECURE_RENEGOTIATION
         SecureRenegotiation* secure_renegotiation; /* valid pointer indicates */
     #endif                                         /* user turned on */
+    #ifdef HAVE_ALPN
+        char*   alpn_client_list;  /* keep the client's list */
+    #endif                         /* of accepted protocols */
     #if !defined(NO_WOLFSSL_CLIENT) && defined(HAVE_SESSION_TICKET)
         CallbackSessionTicket session_ticket_cb;
         void*                 session_ticket_ctx;
@@ -2140,7 +2562,6 @@ struct WOLFSSL {
 #ifdef SESSION_INDEX
     int sessionIndex;                  /* Session's location in the cache. */
 #endif
-    WOLFSSL_ALERT_HISTORY alert_history;
 #ifdef ATOMIC_USER
     void*    MacEncryptCtx;    /* Atomic User Mac/Encrypt Callback Context */
     void*    DecryptVerifyCtx; /* Atomic User Decrypt/Verify Callback Context */
@@ -2150,7 +2571,7 @@ struct WOLFSSL {
         void* EccSignCtx;     /* Ecc Sign   Callback Context */
         void* EccVerifyCtx;   /* Ecc Verify Callback Context */
     #endif /* HAVE_ECC */
-    #ifndef NO_RSA 
+    #ifndef NO_RSA
         void* RsaSignCtx;     /* Rsa Sign   Callback Context */
         void* RsaVerifyCtx;   /* Rsa Verify Callback Context */
         void* RsaEncCtx;      /* Rsa Public  Encrypt   Callback Context */
@@ -2161,9 +2582,14 @@ struct WOLFSSL {
         SessionSecretCb sessionSecretCb;
         void*           sessionSecretCtx;
 #endif /* HAVE_SECRET_CALLBACK */
+#ifdef WOLFSSL_JNI
+        void* jObjectRef;     /* reference to WolfSSLSession in JNI wrapper */
+#endif /* WOLFSSL_JNI */
 };
 
 
+WOLFSSL_LOCAL
+int  SetSSL_CTX(WOLFSSL*, WOLFSSL_CTX*);
 WOLFSSL_LOCAL
 int  InitSSL(WOLFSSL*, WOLFSSL_CTX*);
 WOLFSSL_LOCAL
@@ -2201,20 +2627,20 @@ typedef struct EncryptedInfo {
 #ifdef WOLFSSL_CALLBACKS
     WOLFSSL_LOCAL
     void InitHandShakeInfo(HandShakeInfo*);
-    WOLFSSL_LOCAL 
+    WOLFSSL_LOCAL
     void FinishHandShakeInfo(HandShakeInfo*, const WOLFSSL*);
-    WOLFSSL_LOCAL 
+    WOLFSSL_LOCAL
     void AddPacketName(const char*, HandShakeInfo*);
 
     WOLFSSL_LOCAL
     void InitTimeoutInfo(TimeoutInfo*);
-    WOLFSSL_LOCAL 
+    WOLFSSL_LOCAL
     void FreeTimeoutInfo(TimeoutInfo*, void*);
-    WOLFSSL_LOCAL 
+    WOLFSSL_LOCAL
     void AddPacketInfo(const char*, TimeoutInfo*, const byte*, int, void*);
-    WOLFSSL_LOCAL 
+    WOLFSSL_LOCAL
     void AddLateName(const char*, TimeoutInfo*);
-    WOLFSSL_LOCAL 
+    WOLFSSL_LOCAL
     void AddLateRecordHeader(const RecordLayerHeader* rl, TimeoutInfo* info);
 #endif
 
@@ -2222,10 +2648,10 @@ typedef struct EncryptedInfo {
 /* Record Layer Header identifier from page 12 */
 enum ContentType {
     no_type            = 0,
-    change_cipher_spec = 20, 
-    alert              = 21, 
-    handshake          = 22, 
-    application_data   = 23 
+    change_cipher_spec = 20,
+    alert              = 21,
+    handshake          = 22,
+    application_data   = 23
 };
 
 
@@ -2247,22 +2673,23 @@ typedef struct DtlsHandShakeHeader {
 
 
 enum HandShakeType {
-    no_shake            = -1,
-    hello_request       = 0, 
-    client_hello        = 1, 
+    hello_request       = 0,
+    client_hello        = 1,
     server_hello        = 2,
     hello_verify_request = 3,       /* DTLS addition */
     session_ticket      =  4,
-    certificate         = 11, 
+    certificate         = 11,
     server_key_exchange = 12,
-    certificate_request = 13, 
+    certificate_request = 13,
     server_hello_done   = 14,
-    certificate_verify  = 15, 
+    certificate_verify  = 15,
     client_key_exchange = 16,
     finished            = 20,
-    change_cipher_hs    = 55      /* simulate unique handshake type for sanity
+    certificate_status  = 22,
+    change_cipher_hs    = 55,     /* simulate unique handshake type for sanity
                                      checks.  record layer change_cipher
                                      conflicts with handshake finished */
+    no_shake            = 255     /* used to initialize the DtlsMsg record */
 };
 
 
@@ -2275,9 +2702,12 @@ static const byte tls_server[FINISHED_LABEL_SZ + 1] = "server finished";
 
 /* internal functions */
 WOLFSSL_LOCAL int SendChangeCipher(WOLFSSL*);
+WOLFSSL_LOCAL int SendTicket(WOLFSSL*);
+WOLFSSL_LOCAL int DoClientTicket(WOLFSSL*, const byte*, word32);
 WOLFSSL_LOCAL int SendData(WOLFSSL*, const void*, int);
 WOLFSSL_LOCAL int SendCertificate(WOLFSSL*);
 WOLFSSL_LOCAL int SendCertificateRequest(WOLFSSL*);
+WOLFSSL_LOCAL int SendCertificateStatus(WOLFSSL*);
 WOLFSSL_LOCAL int SendServerKeyExchange(WOLFSSL*);
 WOLFSSL_LOCAL int SendBuffered(WOLFSSL*);
 WOLFSSL_LOCAL int ReceiveData(WOLFSSL*, byte*, int, int);
@@ -2301,6 +2731,11 @@ WOLFSSL_LOCAL void ShrinkOutputBuffer(WOLFSSL* ssl);
 
 WOLFSSL_LOCAL int VerifyClientSuite(WOLFSSL* ssl);
 #ifndef NO_CERTS
+    #ifndef NO_RSA
+        WOLFSSL_LOCAL int VerifyRsaSign(const byte* sig, word32 sigSz,
+                                        const byte* plain, word32 plainSz,
+                                        RsaKey* key);
+    #endif
     WOLFSSL_LOCAL Signer* GetCA(void* cm, byte* hash);
     #ifndef NO_SKID
         WOLFSSL_LOCAL Signer* GetCAByName(void* cm, byte* hash);
@@ -2327,9 +2762,6 @@ WOLFSSL_LOCAL  int GrowInputBuffer(WOLFSSL* ssl, int size, int usedLength);
 #ifndef NO_WOLFSSL_SERVER
     WOLFSSL_LOCAL int SendServerHello(WOLFSSL*);
     WOLFSSL_LOCAL int SendServerHelloDone(WOLFSSL*);
-    #ifdef WOLFSSL_DTLS
-        WOLFSSL_LOCAL int SendHelloVerifyRequest(WOLFSSL*);
-    #endif
 #endif /* NO_WOLFSSL_SERVER */
 
 #ifdef WOLFSSL_DTLS
@@ -2338,12 +2770,13 @@ WOLFSSL_LOCAL  int GrowInputBuffer(WOLFSSL* ssl, int size, int usedLength);
     WOLFSSL_LOCAL int  DtlsPoolTimeout(WOLFSSL*);
     WOLFSSL_LOCAL int  DtlsPoolSend(WOLFSSL*);
     WOLFSSL_LOCAL void DtlsPoolReset(WOLFSSL*);
+    WOLFSSL_LOCAL void DtlsPoolDelete(WOLFSSL*);
 
     WOLFSSL_LOCAL DtlsMsg* DtlsMsgNew(word32, void*);
     WOLFSSL_LOCAL void DtlsMsgDelete(DtlsMsg*, void*);
     WOLFSSL_LOCAL void DtlsMsgListDelete(DtlsMsg*, void*);
-    WOLFSSL_LOCAL void DtlsMsgSet(DtlsMsg*, word32, const byte*, byte,
-                                                             word32, word32);
+    WOLFSSL_LOCAL int  DtlsMsgSet(DtlsMsg*, word32, const byte*, byte,
+                                                       word32, word32, void*);
     WOLFSSL_LOCAL DtlsMsg* DtlsMsgFind(DtlsMsg*, word32);
     WOLFSSL_LOCAL DtlsMsg* DtlsMsgStore(DtlsMsg*, word32, const byte*, word32,
                                                 byte, word32, word32, void*);
@@ -2351,7 +2784,7 @@ WOLFSSL_LOCAL  int GrowInputBuffer(WOLFSSL* ssl, int size, int usedLength);
 #endif /* WOLFSSL_DTLS */
 
 #ifndef NO_TLS
-    
+
 
 #endif /* NO_TLS */
 
@@ -2387,4 +2820,3 @@ WOLFSSL_LOCAL int SetKeysSide(WOLFSSL*, enum encrypt_side);
 #endif
 
 #endif /* wolfSSL_INT_H */
-

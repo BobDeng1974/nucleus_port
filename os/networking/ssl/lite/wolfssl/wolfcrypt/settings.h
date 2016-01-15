@@ -1,14 +1,23 @@
 /* settings.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 /* Place OS specific preprocessor flags, defines, includes here, will be
    included into every file because types.h includes it */
@@ -20,10 +29,6 @@
 #ifdef __cplusplus
     extern "C" {
 #endif
-
-/* Uncomment next line if using Nucleus */
-#define NUCLEUS
-#define OPENSSL_EXTRA
 
 /* Uncomment next line if using IPHONE */
 /* #define IPHONE */
@@ -52,6 +57,9 @@
 /* Uncomment next line if using FreeRTOS */
 /* #define FREERTOS */
 
+/* Uncomment next line if using FreeRTOS+ TCP */
+/* #define FREERTOS_TCP */
+
 /* Uncomment next line if using FreeRTOS Windows Simulator */
 /* #define FREERTOS_WINSIM */
 
@@ -67,8 +75,17 @@
 /* Uncomment next line if building wolfSSL for LSR */
 /* #define WOLFSSL_LSR */
 
-/* Uncomment next line if building wolfSSL for Freescale MQX/RTCS/MFS */
+/* Uncomment next line if building for Freescale Classic MQX/RTCS/MFS */
 /* #define FREESCALE_MQX */
+
+/* Uncomment next line if building for Freescale KSDK MQX/RTCS/MFS */
+/* #define FREESCALE_KSDK_MQX */
+
+/* Uncomment next line if building for Freescale KSDK Bare Metal */
+/* #define FREESCALE_KSDK_BM */
+
+/* Uncomment next line if building for Freescale FreeRTOS */
+/* #define FREESCALE_FREE_RTOS */
 
 /* Uncomment next line if using STM32F2 */
 /* #define WOLFSSL_STM32F2 */
@@ -85,6 +102,9 @@
 /* Uncomment next line if building for IAR EWARM */
 /* #define WOLFSSL_IAR_ARM */
 
+/* Uncomment next line if building for Rowley CrossWorks ARM */
+/* #define WOLFSSL_ROWLEY_ARM */
+
 /* Uncomment next line if using TI-RTOS settings */
 /* #define WOLFSSL_TIRTOS */
 
@@ -94,78 +114,42 @@
 /* Uncomment next line if building for PicoTCP demo bundle */
 /* #define WOLFSSL_PICOTCP_DEMO */
 
+/* Uncomment next line if building for uITRON4  */
+/* #define WOLFSSL_uITRON4 */
+
+/* Uncomment next line if building for uT-Kernel */
+/* #define WOLFSSL_uTKERNEL2 */
+
+/* Uncomment next line if using Max Strength build */
+/* #define WOLFSSL_MAX_STRENGTH */
+
+/* Uncomment next line if building for VxWorks */
+/* #define WOLFSSL_VXWORKS */
+
+/* Uncomment next line to enable deprecated less secure static DH suites */
+/* #define WOLFSSL_STATIC_DH */
+
+/* Uncomment next line to enable deprecated less secure static RSA suites */
+/* #define WOLFSSL_STATIC_RSA */
+
+/* Uncomment next line if using Nucleus */
+/* #define NUCLEUS */
+
 #include <wolfssl/wolfcrypt/visibility.h>
-
-#ifdef IPHONE
-    #define SIZEOF_LONG_LONG 8
-#endif
-
-#ifdef NUCLEUS
-    #include "nucleus.h"
-    #include "os/networking/ssl/lite/cyassl_nucleus_defs.h"
-    #undef SIZEOF_LONG
-    #define SIZEOF_LONG 4
-    #undef SIZEOF_LONG_LONG
-    #define SIZEOF_LONG_LONG 8
-    #if CFG_NU_OS_KERN_PLUS_SUPPLEMENT_STATIC_TEST
-        #define NO_INLINE
-    #endif
-    #if (ESAL_PR_ENDIANESS == ESAL_BIG_ENDIAN)
-        #define BIG_ENDIAN_ORDER
-    #else
-        #undef  BIG_ENDIAN_ORDER
-        #define LITTLE_ENDIAN_ORDER
-    #endif
-    #define NO_WOLFSSL_DIR
-
-    /* Only make a call to gettimeofday() if either the current toolchain
-     * doesn't belong to the following toolchain set (which don't have implementation)
-     * Or posix is enabled. In this case, call will either be made to the
-     * implementation in the toolchain's or posix's implementation of gettimeofday().
-     * __CC_ARM check for ARM_RVCT and ARMV7_RVCT_M
-     * _TMS320C6X check for C6000 TI
-     * __RENESAS__ check for RENESAS */
-    #if ( (!defined(__CC_ARM) &&                  \
-           !defined(_TMS320C6X) &&                  \
-           !defined(__RENESAS__)) ||               \
-          (defined(CFG_NU_OS_SVCS_POSIX_ENABLE)) )
-        #define NUCYASSL_USE_GETTIMEOFDAY
-        #include <sys/time.h>
-    #else
-        /* Only map the XGMTIME to the local implementation of gmtime when posix
-         * is disabled and such toolchain (from the following subset) is being
-         * used which doesn't have its own implementation of gmtime. */
-        #define NUCYASSL_REMAP_GMTIME
-
-        typedef long time_t; /* Used for time in seconds.  */
-        typedef long suseconds_t; /* Used for time in microseconds */
-
-        /* timeval in sec and microsec */
-        struct timeval
-        {
-            time_t         tv_sec;      /* Seconds. */
-            suseconds_t    tv_usec;     /* Microseconds. */
-        };
-
-        struct tm
-        {
-            /* date and time components.  */
-            int tm_sec;                             /* Seconds [0,59].  */
-            int tm_min;                             /* Minutes [0,59].  */
-            int tm_hour;                            /* Hour [0,23].  */
-            int tm_mday;                            /* Day of month [1,31].  */
-            int tm_mon;                             /* Month of year [0,11].  */
-            int tm_year;                            /* Years since 1900.  */
-            int tm_wday;                            /* Day of week [0,6]
-                                                    (Sunday =0).  */
-            int tm_yday;                            /* Day of year [0,365].  */
-            int tm_isdst;                           /* Daylight Savings flag.  */
-        };
-    #endif
-#endif
 
 #ifdef WOLFSSL_USER_SETTINGS
     #include <user_settings.h>
+#endif
+
+
+/* make sure old RNG name is used with CTaoCrypt FIPS */
+#ifdef HAVE_FIPS
+    #define WC_RNG RNG
+#endif
+
+
+#ifdef IPHONE
+    #define SIZEOF_LONG_LONG 8
 #endif
 
 
@@ -202,7 +186,7 @@
     #define NO_FILESYSTEM
 #endif
 
-#if defined(WOLFSSL_IAR_ARM)
+#if defined(WOLFSSL_IAR_ARM) || defined(WOLFSSL_ROWLEY_ARM)
     #define NO_MAIN_DRIVER
     #define SINGLE_THREADED
     #define USE_CERT_BUFFERS_1024
@@ -210,7 +194,7 @@
     #define NO_FILESYSTEM
     #define NO_WRITEV
     #define WOLFSSL_USER_IO
-    #define  BENCH_EMBEDDED
+    #define BENCH_EMBEDDED
 #endif
 
 #ifdef MICROCHIP_PIC32
@@ -224,6 +208,7 @@
     #define USE_FAST_MATH
     #define TFM_TIMING_RESISTANT
     #define NEED_AES_TABLES
+    #define WOLFSSL_HAVE_MIN
 #endif
 
 #ifdef WOLFSSL_MICROCHIP_PIC32MZ
@@ -293,10 +278,13 @@
 #endif
 
 #ifdef WOLFSSL_PICOTCP
-    #define errno pico_err
+    #ifndef errno
+        #define errno pico_err
+    #endif
     #include "pico_defines.h"
     #include "pico_stack.h"
     #include "pico_constants.h"
+    #include "pico_protocol.h"
     #define CUSTOM_RAND_GENERATE pico_rand
 #endif
 
@@ -319,10 +307,105 @@
 #endif
 
 
+#ifdef WOLFSSL_VXWORKS
+    /* VxWorks simulator incorrectly detects building for i386 */
+    #ifdef VXWORKS_SIM
+        #define TFM_NO_ASM
+    #endif
+    #define WOLFSSL_HAVE_MIN
+    #define USE_FAST_MATH
+    #define TFM_TIMING_RESISTANT
+    #define NO_MAIN_DRIVER
+    #define NO_DEV_RANDOM
+    #define NO_WRITEV
+#endif
+
+#ifdef NUCLEUS
+    #include "nucleus.h"
+    #include "os/networking/ssl/lite/cyassl_nucleus_defs.h"
+    #undef SIZEOF_LONG
+    #define SIZEOF_LONG 4
+    #undef SIZEOF_LONG_LONG
+    #define SIZEOF_LONG_LONG 8
+    #if CFG_NU_OS_KERN_PLUS_SUPPLEMENT_STATIC_TEST
+        #define NO_INLINE
+    #endif
+    #if (ESAL_PR_ENDIANESS == ESAL_BIG_ENDIAN)
+        #define BIG_ENDIAN_ORDER
+    #else
+        #undef  BIG_ENDIAN_ORDER
+        #define LITTLE_ENDIAN_ORDER
+    #endif
+    #define NO_WOLFSSL_DIR
+
+    /* Only make a call to gettimeofday() if either the current toolchain
+     * doesn't belong to the following toolchain set (which don't have implementation)
+     * Or posix is enabled. In this case, call will either be made to the
+     * implementation in the toolchain's or posix's implementation of gettimeofday().
+     * __CC_ARM check for ARM_RVCT and ARMV7_RVCT_M
+     * _TMS320C6X check for C6000 TI
+     * __RENESAS__ check for RENESAS */
+    #if (   !defined(__CC_ARM) && \
+            !defined(_TMS320C6X) && \
+            !defined(__RENESAS__)
+        ) || defined(CFG_NU_OS_SVCS_POSIX_ENABLE)
+        #define NUCLEUS_USE_GETTIMEOFDAY
+        #include <sys/time.h>
+    #endif
+#endif
+
 /* Micrium will use Visual Studio for compilation but not the Win32 API */
-#if defined(_WIN32) && !defined(MICRIUM) && !defined(FREERTOS) \
+#if defined(_WIN32) && !defined(MICRIUM) && !defined(FREERTOS) && !defined(FREERTOS_TCP)\
         && !defined(EBSNET) && !defined(WOLFSSL_EROAD)
     #define USE_WINDOWS_API
+#endif
+
+#if defined(WOLFSSL_uITRON4)
+
+#define XMALLOC_USER
+#include <stddef.h>
+#define ITRON_POOL_SIZE 1024*20
+extern int uITRON4_minit(size_t poolsz) ;
+extern void *uITRON4_malloc(size_t sz) ;
+extern void *uITRON4_realloc(void *p, size_t sz) ;
+extern void uITRON4_free(void *p) ;
+
+#define XMALLOC(sz, heap, type)     uITRON4_malloc(sz)
+#define XREALLOC(p, sz, heap, type) uITRON4_realloc(p, sz)
+#define XFREE(p, heap, type)        uITRON4_free(p)
+#endif
+
+#if defined(WOLFSSL_uTKERNEL2)
+#define WOLFSSL_CLOSESOCKET
+#define XMALLOC_USER
+int uTKernel_init_mpool(unsigned int sz) ; /* initializing malloc pool */
+void *uTKernel_malloc(unsigned int sz) ;
+void *uTKernel_realloc(void *p, unsigned int sz) ;
+void   uTKernel_free(void *p) ;
+#define XMALLOC(s, h, type) uTKernel_malloc((s))
+#define XREALLOC(p, n, h, t)  uTKernel_realloc((p), (n))
+#define XFREE(p, h, type)  uTKernel_free((p))
+
+#include <stdio.h>
+#include    "tm/tmonitor.h"
+static char *fgets(char *buff, int sz, FILE *fp)
+/*static char * gets(char *buff)*/
+{
+    char * p = buff ;
+    *p = '\0' ;
+    while(1) {
+        *p = tm_getchar(-1) ;
+        tm_putchar(*p) ;
+        if(*p == '\r') {
+            tm_putchar('\n') ;
+            *p = '\0' ;
+            break ;
+        }
+        p ++ ;
+    }
+    return buff ;
+}
+
 #endif
 
 
@@ -344,14 +427,26 @@
 
 
 #ifdef FREERTOS
+    #include "FreeRTOS.h"
+
+    /* FreeRTOS pvPortRealloc() only in AVR32_UC3 port */
+    #if !defined(XMALLOC_USER) && !defined(NO_WOLFSSL_MEMORY)
+        #define XMALLOC(s, h, type)  pvPortMalloc((s))
+        #define XFREE(p, h, type)    vPortFree((p))
+    #endif
+
     #ifndef NO_WRITEV
         #define NO_WRITEV
     #endif
-    #ifndef NO_SHA512
-        #define NO_SHA512
+    #ifndef HAVE_SHA512
+        #ifndef NO_SHA512
+            #define NO_SHA512
+        #endif
     #endif
-    #ifndef NO_DH
-        #define NO_DH
+    #ifndef HAVE_DH
+        #ifndef NO_DH
+            #define NO_DH
+        #endif
     #endif
     #ifndef NO_DSA
         #define NO_DSA
@@ -361,9 +456,26 @@
     #endif
 
     #ifndef SINGLE_THREADED
-        #include "FreeRTOS.h"
         #include "semphr.h"
     #endif
+#endif
+
+#ifdef FREERTOS_TCP
+
+#if !defined(NO_WOLFSSL_MEMORY) && !defined(XMALLOC_USER)
+#define XMALLOC(s, h, type)  pvPortMalloc((s))
+#define XFREE(p, h, type)    vPortFree((p))
+#endif
+
+#define WOLFSSL_GENSEED_FORTEST
+
+#define NO_WOLFSSL_DIR
+#define NO_WRITEV
+#define WOLFSSL_HAVE_MIN
+#define USE_FAST_MATH
+#define TFM_TIMING_REGISTANT
+#define NO_MAIN_DRIVER
+
 #endif
 
 #ifdef WOLFSSL_TIRTOS
@@ -377,6 +489,7 @@
     #define USE_CERT_BUFFERS_2048
     #define NO_ERROR_STRINGS
     #define USER_TIME
+    #define HAVE_ECC
 
     #ifdef __IAR_SYSTEMS_ICC__
         #pragma diag_suppress=Pa089
@@ -385,7 +498,7 @@
         #pragma diag_suppress=11
     #endif
 
-    #include <ti/ndk/nettools/mytime/mytime.h>
+    #include <ti/sysbios/hal/Seconds.h>
 #endif
 
 #ifdef EBSNET
@@ -475,19 +588,15 @@
 #endif
 
 #ifdef FREESCALE_MQX
-    #define SIZEOF_LONG_LONG 8
-    #define NO_WRITEV
-    #define NO_DEV_RANDOM
-    #define NO_RABBIT
-    #define NO_WOLFSSL_DIR
-    #define USE_FAST_MATH
-    #define TFM_TIMING_RESISTANT
-    #define FREESCALE_K70_RNGA
-    /* #define FREESCALE_K53_RNGB */
+    #define FREESCALE_COMMON
     #include "mqx.h"
     #ifndef NO_FILESYSTEM
         #include "mfs.h"
-        #include "fio.h"
+        #if MQX_USE_IO_OLD
+            #include "fio.h"
+        #else
+            #include "nio.h"
+        #endif
     #endif
     #ifndef SINGLE_THREADED
         #include "mutex.h"
@@ -496,6 +605,76 @@
     #define XMALLOC(s, h, t)    (void *)_mem_alloc_system((s))
     #define XFREE(p, h, t)      {void* xp = (p); if ((xp)) _mem_free((xp));}
     /* Note: MQX has no realloc, using fastmath above */
+#endif
+
+#ifdef FREESCALE_KSDK_MQX
+    #define FREESCALE_COMMON
+    #include <mqx.h>
+    #ifndef NO_FILESYSTEM
+        #if MQX_USE_IO_OLD
+            #include <fio.h>
+        #else
+            #include <stdio.h>
+            #include <nio.h>
+        #endif
+    #endif
+    #ifndef SINGLE_THREADED
+        #include <mutex.h>
+    #endif
+
+    #define XMALLOC(s, h, t)    (void *)_mem_alloc_system((s))
+    #define XFREE(p, h, t)      {void* xp = (p); if ((xp)) _mem_free((xp));}
+    #define XREALLOC(p, n, h, t) _mem_realloc((p), (n)) /* since MQX 4.1.2 */
+#endif
+
+#ifdef FREESCALE_KSDK_BM
+    #define FREESCALE_COMMON
+    #define WOLFSSL_USER_IO
+    #define SINGLE_THREADED
+    #define NO_FILESYSTEM
+    #define USE_WOLFSSL_MEMORY
+#endif
+
+#ifdef FREESCALE_FREE_RTOS
+    #define FREESCALE_COMMON
+    #define NO_FILESYSTEM
+    #define NO_MAIN_DRIVER
+    #define XMALLOC(s, h, t)  OSA_MemAlloc(s);
+    #define XFREE(p, h, t)    {void* xp = (p); if((xp)) OSA_MemFree((xp));}
+    #define XREALLOC(p, n, h, t) ksdk_realloc((p), (n), (h), (t));
+    #ifdef FREESCALE_KSDK_BM
+        #error Baremetal and FreeRTOS cannot be both enabled at the same time!
+    #endif
+    #ifndef SINGLE_THREADED
+        #include "FreeRTOS.h"
+        #include "semphr.h"
+    #endif
+#endif
+
+#ifdef FREESCALE_COMMON
+    #define SIZEOF_LONG_LONG 8
+    #define NO_WRITEV
+    #define NO_DEV_RANDOM
+    #define NO_RABBIT
+    #define NO_WOLFSSL_DIR
+    #define USE_FAST_MATH
+    #define TFM_TIMING_RESISTANT
+
+    #if FSL_FEATURE_SOC_ENET_COUNT == 0
+        #define WOLFSSL_USER_IO
+    #endif
+
+    /* random seed */
+    #define NO_OLD_RNGNAME
+    #if FSL_FEATURE_SOC_TRNG_COUNT > 0
+        #define FREESCALE_TRNG
+    #elif !defined(FREESCALE_KSDK_BM) && !defined(FREESCALE_FREE_RTOS)
+        #define FREESCALE_K70_RNGA
+        /* #define FREESCALE_K53_RNGB */
+    #endif
+
+    /* HW crypto */
+    /* #define FREESCALE_MMCAU */
 #endif
 
 #ifdef WOLFSSL_STM32F2
@@ -748,11 +927,11 @@
 
 
 /* stream ciphers except arc4 need 32bit alignment, intel ok without */
-#ifndef XSTREAM_ALIGNMENT
+#ifndef XSTREAM_ALIGN
     #if defined(__x86_64__) || defined(__ia64__) || defined(__i386__)
-        #define NO_XSTREAM_ALIGNMENT
+        #define NO_XSTREAM_ALIGN
     #else
-        #define XSTREAM_ALIGNMENT
+        #define XSTREAM_ALIGN
     #endif
 #endif
 
@@ -768,13 +947,25 @@
 #ifndef WOLFSSL_GENERAL_ALIGNMENT
     #ifdef WOLFSSL_AESNI
         #define WOLFSSL_GENERAL_ALIGNMENT 16
-    #elif defined(XSTREAM_ALIGNMENT)
+    #elif defined(XSTREAM_ALIGN)
         #define WOLFSSL_GENERAL_ALIGNMENT  4
     #elif defined(FREESCALE_MMCAU)
         #define WOLFSSL_GENERAL_ALIGNMENT  WOLFSSL_MMCAU_ALIGNMENT
     #else
         #define WOLFSSL_GENERAL_ALIGNMENT  0
     #endif
+#endif
+
+#if defined(WOLFSSL_GENERAL_ALIGNMENT) && (WOLFSSL_GENERAL_ALIGNMENT > 0)
+    #if defined(_MSC_VER)
+        #define XGEN_ALIGN __declspec(align(WOLFSSL_GENERAL_ALIGNMENT))
+    #elif defined(__GNUC__)
+        #define XGEN_ALIGN __attribute__((aligned(WOLFSSL_GENERAL_ALIGNMENT)))
+    #else
+        #define XGEN_ALIGN
+    #endif
+#else
+    #define XGEN_ALIGN
 #endif
 
 #ifdef HAVE_CRL
@@ -788,6 +979,72 @@
     #pragma warning(disable:2259) /* explicit casts to smaller sizes, disable */
 #endif
 
+/* user can specify what curves they want with ECC_USER_CURVES otherwise
+ * all curves are on by default for now */
+#ifndef ECC_USER_CURVES
+    #ifndef HAVE_ALL_CURVES
+        #define HAVE_ALL_CURVES
+    #endif
+#endif
+
+/* if desktop type system and fastmath increase default max bits */
+#ifdef WOLFSSL_X86_64_BUILD
+    #ifdef USE_FAST_MATH
+        #ifndef FP_MAX_BITS
+            #define FP_MAX_BITS 8192
+        #endif
+    #endif
+#endif
+
+/* If using the max strength build, ensure OLD TLS is disabled. */
+#ifdef WOLFSSL_MAX_STRENGTH
+    #undef NO_OLD_TLS
+    #define NO_OLD_TLS
+#endif
+
+/* If not forcing to use ARC4 as the DRBG, always enable Hash_DRBG */
+#undef HAVE_HASHDRBG
+#ifndef WOLFSSL_FORCE_RC4_DRBG
+    #define HAVE_HASHDRBG
+#endif
+
+
+/* sniffer requires:
+ * static RSA cipher suites
+ * session stats and peak stats
+ */
+#ifdef WOLFSSL_SNIFFER
+    #ifndef WOLFSSL_STATIC_RSA
+        #define WOLFSSL_STATIC_RSA
+    #endif
+    #ifndef WOLFSSL_SESSION_STATS
+        #define WOLFSSL_SESSION_STATS
+    #endif
+    #ifndef WOLFSSL_PEAK_SESSIONS
+        #define WOLFSSL_PEAK_SESSIONS
+    #endif
+#endif
+
+/* Decode Public Key extras on by default, user can turn off with
+ * WOLFSSL_NO_DECODE_EXTRA */
+#ifndef WOLFSSL_NO_DECODE_EXTRA
+    #ifndef RSA_DECODE_EXTRA
+        #define RSA_DECODE_EXTRA
+    #endif
+    #ifndef ECC_DECODE_EXTRA
+        #define ECC_DECODE_EXTRA
+    #endif
+#endif
+
+/* C Sharp wrapper defines */
+#ifdef HAVE_CSHARP
+    #ifndef WOLFSSL_DTLS
+        #define WOLFSSL_DTLS
+    #endif
+    #undef NO_PSK
+    #undef NO_SHA256
+    #undef NO_DH
+#endif
 
 /* Place any other flags or defines here */
 

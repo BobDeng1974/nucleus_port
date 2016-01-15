@@ -1,22 +1,31 @@
 /* pkcs7.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
-
-
-#ifdef HAVE_PKCS7
 
 #ifndef WOLF_CRYPT_PKCS7_H
 #define WOLF_CRYPT_PKCS7_H
 
 #include <wolfssl/wolfcrypt/types.h>
+
+#ifdef HAVE_PKCS7
+
 #ifndef NO_ASN
     #include <wolfssl/wolfcrypt/asn.h>
 #endif
@@ -64,14 +73,14 @@ typedef struct PKCS7 {
     word32 contentSz;             /* content size                         */
     int contentOID;               /* PKCS#7 content type OID sum          */
 
-    RNG* rng;
+    WC_RNG* rng;
 
     int hashOID;
     int encryptOID;               /* key encryption algorithm OID         */
 
     byte*  singleCert;            /* recipient cert, DER, not owner       */
     word32 singleCertSz;          /* size of recipient cert buffer, bytes */
-    byte issuerHash[SHA_SIZE];    /* hash of all alt Names                */
+    byte issuerHash[KEYID_SIZE];  /* hash of all alt Names                */
     byte*  issuer;                /* issuer name of singleCert            */
     word32 issuerSz;              /* length of issuer name                */
     byte issuerSn[MAX_SN_SZ];     /* singleCert's serial number           */
@@ -91,7 +100,7 @@ WOLFSSL_LOCAL int wc_GetContentType(const byte* input, word32* inOutIdx,
                                 word32* oid, word32 maxIdx);
 WOLFSSL_LOCAL int wc_CreateRecipientInfo(const byte* cert, word32 certSz,
                                      int keyEncAlgo, int blockKeySz,
-                                     RNG* rng, byte* contentKeyPlain,
+                                     WC_RNG* rng, byte* contentKeyPlain,
                                      byte* contentKeyEnc,
                                      int* keyEncSz, byte* out, word32 outSz);
 
@@ -112,7 +121,6 @@ WOLFSSL_API int  wc_PKCS7_DecodeEnvelopedData(PKCS7* pkcs7, byte* pkiMsg,
     } /* extern "C" */
 #endif
 
-#endif /* WOLF_CRYPT_PKCS7_H */
-
 #endif /* HAVE_PKCS7 */
+#endif /* WOLF_CRYPT_PKCS7_H */
 

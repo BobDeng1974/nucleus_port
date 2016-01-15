@@ -1,14 +1,23 @@
 /* des3.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
@@ -82,23 +91,9 @@ void wc_Des_SetIV(Des* des, const byte* iv)
 }
 
 
-int wc_Des_CbcDecryptWithKey(byte* out, const byte* in, word32 sz,
-                                                const byte* key, const byte* iv)
-{
-    return Des_CbcDecryptWithKey(out, in, sz, key, iv);
-}
-
-
 int wc_Des3_SetIV(Des3* des, const byte* iv)
 {
     return Des3_SetIV_fips(des, iv);
-}
-
-
-int wc_Des3_CbcDecryptWithKey(byte* out, const byte* in, word32 sz,
-                                                const byte* key, const byte* iv)
-{
-    return Des3_CbcDecryptWithKey(out, in, sz, key, iv);
 }
 
 
@@ -120,6 +115,11 @@ void wc_Des3_FreeCavium(Des3* des3)
 
 #endif /* HAVE_CAVIUM */
 #else /* build without fips */
+
+#if defined(WOLFSSL_TI_CRYPT)
+    #include <wolfcrypt/src/port/ti/ti-des3.c>
+#else
+
 #include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/logging.h>
 
@@ -654,6 +654,7 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
         int i;
         int offset = 0;
         int len = sz;
+        int ret = 0;
         byte *iv;
         byte temp_block[DES_BLOCK_SIZE];
 
@@ -672,7 +673,12 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
             for (i = 0; i < DES_BLOCK_SIZE; i++)
                 temp_block[i] ^= iv[i];
 
+            ret = wolfSSL_CryptHwMutexLock();
+            if(ret != 0) {
+                return ret;
+            }
             cau_des_encrypt(temp_block, (byte*)des->key, out + offset);
+            wolfSSL_CryptHwMutexUnLock();
 
             len    -= DES_BLOCK_SIZE;
             offset += DES_BLOCK_SIZE;
@@ -681,7 +687,7 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
             XMEMCPY(iv, out + offset - DES_BLOCK_SIZE, DES_BLOCK_SIZE);
         }
 
-        return 0;
+        return ret;
     }
 
     int wc_Des_CbcDecrypt(Des* des, byte* out, const byte* in, word32 sz)
@@ -689,6 +695,7 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
         int i;
         int offset = 0;
         int len = sz;
+        int ret = 0;
         byte* iv;
         byte temp_block[DES_BLOCK_SIZE];
 
@@ -703,7 +710,12 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
         {
             XMEMCPY(temp_block, in + offset, DES_BLOCK_SIZE);
 
+            ret = wolfSSL_CryptHwMutexLock();
+            if(ret != 0) {
+                return ret;
+            }
             cau_des_decrypt(in + offset, (byte*)des->key, out + offset);
+            wolfSSL_CryptHwMutexUnLock();
 
             /* XOR block with IV for CBC */
             for (i = 0; i < DES_BLOCK_SIZE; i++)
@@ -716,7 +728,7 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
             offset += DES_BLOCK_SIZE;
         }
 
-        return 0;
+        return ret;
     }
 
     int wc_Des3_CbcEncrypt(Des3* des, byte* out, const byte* in, word32 sz)
@@ -724,6 +736,7 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
         int i;
         int offset = 0;
         int len = sz;
+        int ret = 0;
 
         byte *iv;
         byte temp_block[DES_BLOCK_SIZE];
@@ -743,9 +756,14 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
             for (i = 0; i < DES_BLOCK_SIZE; i++)
                 temp_block[i] ^= iv[i];
 
+            ret = wolfSSL_CryptHwMutexLock();
+            if(ret != 0) {
+                return ret;
+            }
             cau_des_encrypt(temp_block  , (byte*)des->key[0], out + offset);
             cau_des_decrypt(out + offset, (byte*)des->key[1], out + offset);
             cau_des_encrypt(out + offset, (byte*)des->key[2], out + offset);
+            wolfSSL_CryptHwMutexUnLock();
 
             len    -= DES_BLOCK_SIZE;
             offset += DES_BLOCK_SIZE;
@@ -754,7 +772,7 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
             XMEMCPY(iv, out + offset - DES_BLOCK_SIZE, DES_BLOCK_SIZE);
         }
 
-        return 0;
+        return ret;
     }
 
     int wc_Des3_CbcDecrypt(Des3* des, byte* out, const byte* in, word32 sz)
@@ -762,6 +780,7 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
         int i;
         int offset = 0;
         int len = sz;
+        int ret = 0;
 
         byte* iv;
         byte temp_block[DES_BLOCK_SIZE];
@@ -777,9 +796,14 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
         {
             XMEMCPY(temp_block, in + offset, DES_BLOCK_SIZE);
 
+            ret = wolfSSL_CryptHwMutexLock();
+            if(ret != 0) {
+                return ret;
+            }
             cau_des_decrypt(in + offset , (byte*)des->key[2], out + offset);
             cau_des_encrypt(out + offset, (byte*)des->key[1], out + offset);
             cau_des_decrypt(out + offset, (byte*)des->key[0], out + offset);
+            wolfSSL_CryptHwMutexUnLock();
 
             /* XOR block with IV for CBC */
             for (i = 0; i < DES_BLOCK_SIZE; i++)
@@ -792,7 +816,7 @@ int wc_Des3_SetKey(Des3* des3, const byte* key, const byte* iv, int dir)
             offset += DES_BLOCK_SIZE;
         }
 
-        return 0;
+        return ret;
     }
 
 
@@ -934,7 +958,7 @@ int  wc_Des3_SetIV(Des3* des, const byte* iv);
                 PIC32_DECRYPTION, PIC32_ALGO_TDES, PIC32_CRYPTOALGO_TCBC);
         return 0;
     }
-
+    
 #else /* CTaoCrypt software implementation */
 
 /* permuted choice table (key) */
@@ -1376,7 +1400,7 @@ int wc_Des_CbcEncrypt(Des* des, byte* out, const byte* in, word32 sz)
         XMEMCPY(out, des->reg, DES_BLOCK_SIZE);
 
         out += DES_BLOCK_SIZE;
-        in  += DES_BLOCK_SIZE; 
+        in  += DES_BLOCK_SIZE;
     }
     return 0;
 }
@@ -1385,19 +1409,15 @@ int wc_Des_CbcEncrypt(Des* des, byte* out, const byte* in, word32 sz)
 int wc_Des_CbcDecrypt(Des* des, byte* out, const byte* in, word32 sz)
 {
     word32 blocks = sz / DES_BLOCK_SIZE;
-    byte   hold[DES_BLOCK_SIZE];
 
     while (blocks--) {
         XMEMCPY(des->tmp, in, DES_BLOCK_SIZE);
         DesProcessBlock(des, (byte*)des->tmp, out);
         xorbuf(out, (byte*)des->reg, DES_BLOCK_SIZE);
-
-        XMEMCPY(hold, des->reg, DES_BLOCK_SIZE);
         XMEMCPY(des->reg, des->tmp, DES_BLOCK_SIZE);
-        XMEMCPY(des->tmp, hold, DES_BLOCK_SIZE);
 
         out += DES_BLOCK_SIZE;
-        in  += DES_BLOCK_SIZE; 
+        in  += DES_BLOCK_SIZE;
     }
     return 0;
 }
@@ -1419,7 +1439,7 @@ int wc_Des3_CbcEncrypt(Des3* des, byte* out, const byte* in, word32 sz)
         XMEMCPY(out, des->reg, DES_BLOCK_SIZE);
 
         out += DES_BLOCK_SIZE;
-        in  += DES_BLOCK_SIZE; 
+        in  += DES_BLOCK_SIZE;
     }
     return 0;
 }
@@ -1476,34 +1496,6 @@ void wc_Des_SetIV(Des* des, const byte* iv)
 }
 
 
-int wc_Des_CbcDecryptWithKey(byte* out, const byte* in, word32 sz,
-                                                const byte* key, const byte* iv)
-{
-    int ret  = 0;
-#ifdef WOLFSSL_SMALL_STACK
-    Des* des = NULL;
-#else
-    Des  des[1];
-#endif
-
-#ifdef WOLFSSL_SMALL_STACK
-    des = (Des*)XMALLOC(sizeof(Des), NULL, DYNAMIC_TYPE_TMP_BUFFER);
-    if (des == NULL)
-        return MEMORY_E;
-#endif
-
-    ret = wc_Des_SetKey(des, key, iv, DES_DECRYPTION);
-    if (ret == 0)
-        ret = wc_Des_CbcDecrypt(des, out, in, sz); 
-
-#ifdef WOLFSSL_SMALL_STACK
-    XFREE(des, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-#endif
-
-    return ret;
-}
-
-
 int wc_Des3_SetIV(Des3* des, const byte* iv)
 {
     if (des && iv)
@@ -1512,34 +1504,6 @@ int wc_Des3_SetIV(Des3* des, const byte* iv)
         XMEMSET(des->reg,  0, DES_BLOCK_SIZE);
 
     return 0;
-}
-
-
-int wc_Des3_CbcDecryptWithKey(byte* out, const byte* in, word32 sz,
-                                                const byte* key, const byte* iv)
-{
-    int ret    = 0;
-#ifdef WOLFSSL_SMALL_STACK
-    Des3* des3 = NULL;
-#else
-    Des3  des3[1];
-#endif
-
-#ifdef WOLFSSL_SMALL_STACK
-    des3 = (Des3*)XMALLOC(sizeof(Des3), NULL, DYNAMIC_TYPE_TMP_BUFFER);
-    if (des3 == NULL)
-        return MEMORY_E;
-#endif
-
-    ret = wc_Des3_SetKey(des3, key, iv, DES_DECRYPTION);
-    if (ret == 0)
-        ret = wc_Des3_CbcDecrypt(des3, out, in, sz); 
-
-#ifdef WOLFSSL_SMALL_STACK
-    XFREE(des3, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-#endif
-
-    return ret;
 }
 
 
@@ -1659,5 +1623,6 @@ static int wc_Des3_CaviumCbcDecrypt(Des3* des3, byte* out, const byte* in,
 }
 
 #endif /* HAVE_CAVIUM */
+#endif /* WOLFSSL_TI_CRYPT */
 #endif /* HAVE_FIPS */
 #endif /* NO_DES3 */

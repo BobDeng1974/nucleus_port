@@ -1,14 +1,23 @@
 /* integer.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 /*
  * Based on public domain LibTomMath 0.38 by Tom St Denis, tomstdenis@iahu.ca,
@@ -26,6 +35,8 @@
 #ifdef USE_FAST_MATH
     #include <wolfssl/wolfcrypt/tfm.h>
 #else
+
+#include <wolfssl/wolfcrypt/random.h> 
 
 #ifndef CHAR_BIT
     #include <limits.h>
@@ -65,6 +76,10 @@ extern "C" {
 #if defined(MP_64BIT) && defined(__INTEL_COMPILER) && !defined(HAVE___UINT128_T)
     #undef MP_64BIT
 #endif
+
+
+/* allow user to define on mp_digit, mp_word, DIGIT_BIT types */
+#ifndef WOLFSSL_BIGINT_TYPES
 
 /* some default configurations.
  *
@@ -108,6 +123,7 @@ extern "C" {
 #endif
 #endif
 
+#endif /* WOLFSSL_BIGINT_TYPES */
 
 /* otherwise the bits per digit is calculated automatically from the size of
    a mp_digit */
@@ -131,7 +147,8 @@ extern "C" {
 #define MP_OKAY       0   /* ok result */
 #define MP_MEM        -2  /* out of mem */
 #define MP_VAL        -3  /* invalid input */
-#define MP_RANGE      MP_VAL
+#define MP_NOT_INF	  -4  /* point not at infinity */
+#define MP_RANGE      MP_NOT_INF
 
 #define MP_YES        1   /* yes response */
 #define MP_NO         0   /* no response */
@@ -241,6 +258,7 @@ int  mp_cmp_mag (mp_int * a, mp_int * b);
 int  mp_cmp (mp_int * a, mp_int * b);
 int  mp_cmp_d(mp_int * a, mp_digit b);
 void mp_set (mp_int * a, mp_digit b);
+int  mp_is_bit_set (mp_int * a, mp_digit b);
 int  mp_mod (mp_int * a, mp_int * b, mp_int * c);
 int  mp_div(mp_int * a, mp_int * b, mp_int * c, mp_int * d);
 int  mp_div_2(mp_int * a, mp_int * b);
@@ -278,6 +296,7 @@ int  mp_sqr (mp_int * a, mp_int * b);
 int  mp_mulmod (mp_int * a, mp_int * b, mp_int * c, mp_int * d);
 int  mp_mul_d (mp_int * a, mp_digit b, mp_int * c);
 int  mp_2expt (mp_int * a, int b);
+int  mp_set_bit (mp_int * a, int b);
 int  mp_reduce_2k_setup(mp_int *a, mp_digit *d);
 int  mp_add_d (mp_int* a, mp_digit b, mp_int* c);
 int mp_set_int (mp_int * a, unsigned long b);
@@ -287,11 +306,13 @@ int mp_sub_d (mp_int * a, mp_digit b, mp_int * c);
 /* added */
 int mp_init_multi(mp_int* a, mp_int* b, mp_int* c, mp_int* d, mp_int* e,
                   mp_int* f);
+int mp_toradix (mp_int *a, char *str, int radix);
+int mp_radix_size (mp_int * a, int radix, int *size);
 
 #if defined(HAVE_ECC) || defined(WOLFSSL_KEY_GEN)
     int mp_sqrmod(mp_int* a, mp_int* b, mp_int* c);
 #endif
-#ifdef HAVE_ECC
+#if defined(HAVE_ECC) || defined(WOLFSSL_KEY_GEN)
     int mp_read_radix(mp_int* a, const char* str, int radix);
 #endif
 
@@ -299,6 +320,7 @@ int mp_init_multi(mp_int* a, mp_int* b, mp_int* c, mp_int* d, mp_int* e,
     int mp_prime_is_prime (mp_int * a, int t, int *result);
     int mp_gcd (mp_int * a, mp_int * b, mp_int * c);
     int mp_lcm (mp_int * a, mp_int * b, mp_int * c);
+    int mp_rand_prime(mp_int* N, int len, WC_RNG* rng, void* heap);
 #endif
 
 int mp_cnt_lsb(mp_int *a);

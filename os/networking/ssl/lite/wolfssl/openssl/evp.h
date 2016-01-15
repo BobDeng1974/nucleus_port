@@ -1,14 +1,23 @@
 /* evp.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 /*  evp.h defines mini evp openssl compatibility layer 
@@ -25,11 +34,14 @@
 #include "prefix_evp.h"
 #endif
 
-#include <wolfssl/openssl/md5.h>
+#ifndef NO_MD5
+    #include <wolfssl/openssl/md5.h>
+#endif
 #include <wolfssl/openssl/sha.h>
 #include <wolfssl/openssl/ripemd.h>
 #include <wolfssl/openssl/rsa.h>
 #include <wolfssl/openssl/dsa.h>
+#include <wolfssl/openssl/ec.h>
 
 #include <wolfssl/wolfcrypt/aes.h>
 #include <wolfssl/wolfcrypt/des3.h>
@@ -43,7 +55,9 @@
 typedef char WOLFSSL_EVP_MD;
 typedef char WOLFSSL_EVP_CIPHER;
 
-WOLFSSL_API const WOLFSSL_EVP_MD* wolfSSL_EVP_md5(void);
+#ifndef NO_MD5
+    WOLFSSL_API const WOLFSSL_EVP_MD* wolfSSL_EVP_md5(void);
+#endif
 WOLFSSL_API const WOLFSSL_EVP_MD* wolfSSL_EVP_sha1(void);
 WOLFSSL_API const WOLFSSL_EVP_MD* wolfSSL_EVP_sha256(void);
 WOLFSSL_API const WOLFSSL_EVP_MD* wolfSSL_EVP_sha384(void);
@@ -59,11 +73,14 @@ WOLFSSL_API const WOLFSSL_EVP_CIPHER* wolfSSL_EVP_aes_256_ctr(void);
 WOLFSSL_API const WOLFSSL_EVP_CIPHER* wolfSSL_EVP_des_cbc(void);
 WOLFSSL_API const WOLFSSL_EVP_CIPHER* wolfSSL_EVP_des_ede3_cbc(void);
 WOLFSSL_API const WOLFSSL_EVP_CIPHER* wolfSSL_EVP_rc4(void);
+WOLFSSL_API const WOLFSSL_EVP_CIPHER* wolfSSL_EVP_idea_cbc(void);
 WOLFSSL_API const WOLFSSL_EVP_CIPHER* wolfSSL_EVP_enc_null(void);
 
 
 typedef union {
-    WOLFSSL_MD5_CTX    md5;
+    #ifndef NO_MD5
+        WOLFSSL_MD5_CTX    md5;
+    #endif
     WOLFSSL_SHA_CTX    sha;
     WOLFSSL_SHA256_CTX sha256;
     #ifdef WOLFSSL_SHA384
@@ -85,12 +102,17 @@ typedef struct WOLFSSL_EVP_MD_CTX {
 
 
 typedef union {
+#ifndef NO_AES
     Aes  aes;
+#endif
 #ifndef NO_DES3
     Des  des;
     Des3 des3;
 #endif
     Arc4 arc4;
+#ifdef HAVE_IDEA
+    Idea idea;
+#endif
 } WOLFSSL_Cipher;
 
 
@@ -107,7 +129,10 @@ enum {
     NULL_CIPHER_TYPE  = 10,
     EVP_PKEY_RSA      = 11,
     EVP_PKEY_DSA      = 12,
+	EVP_PKEY_EC		  = 13,
+    IDEA_CBC_TYPE     = 14,
     NID_sha1          = 64,
+    NID_md2           = 3,
     NID_md5           =  4
 };
 
@@ -116,7 +141,11 @@ typedef struct WOLFSSL_EVP_CIPHER_CTX {
     int            keyLen;         /* user may set for variable */
     unsigned char  enc;            /* if encrypt side, then true */
     unsigned char  cipherType;
+#ifndef NO_AES
     unsigned char  iv[AES_BLOCK_SIZE];    /* working iv pointer into cipher */
+#elif !defined(NO_DES3)
+    unsigned char  iv[DES_BLOCK_SIZE];    /* working iv pointer into cipher */
+#endif
     WOLFSSL_Cipher  cipher;
 } WOLFSSL_EVP_CIPHER_CTX;
 
@@ -133,10 +162,12 @@ WOLFSSL_API int wolfSSL_EVP_DigestFinal(WOLFSSL_EVP_MD_CTX* ctx, unsigned char* 
                                       unsigned int* s);
 WOLFSSL_API int wolfSSL_EVP_DigestFinal_ex(WOLFSSL_EVP_MD_CTX* ctx,
                                             unsigned char* md, unsigned int* s);
+#ifndef NO_MD5
 WOLFSSL_API int wolfSSL_EVP_BytesToKey(const WOLFSSL_EVP_CIPHER*,
                               const WOLFSSL_EVP_MD*, const unsigned char*,
                               const unsigned char*, int, int, unsigned char*,
                               unsigned char*);
+#endif
 
 WOLFSSL_API void wolfSSL_EVP_CIPHER_CTX_init(WOLFSSL_EVP_CIPHER_CTX* ctx);
 WOLFSSL_API int  wolfSSL_EVP_CIPHER_CTX_cleanup(WOLFSSL_EVP_CIPHER_CTX* ctx);
@@ -159,6 +190,7 @@ WOLFSSL_API const WOLFSSL_EVP_MD* wolfSSL_EVP_get_digestbynid(int);
 
 WOLFSSL_API WOLFSSL_RSA* wolfSSL_EVP_PKEY_get1_RSA(WOLFSSL_EVP_PKEY*);
 WOLFSSL_API WOLFSSL_DSA* wolfSSL_EVP_PKEY_get1_DSA(WOLFSSL_EVP_PKEY*);
+WOLFSSL_API WOLFSSL_EC_KEY *wolfSSL_EVP_PKEY_get1_EC_KEY(WOLFSSL_EVP_PKEY *key);
 
 /* these next ones don't need real OpenSSL type, for OpenSSH compat only */
 WOLFSSL_API void* wolfSSL_EVP_X_STATE(const WOLFSSL_EVP_CIPHER_CTX* ctx);
@@ -180,7 +212,9 @@ typedef WOLFSSL_EVP_CIPHER     EVP_CIPHER;
 typedef WOLFSSL_EVP_MD_CTX     EVP_MD_CTX;
 typedef WOLFSSL_EVP_CIPHER_CTX EVP_CIPHER_CTX;
 
-#define EVP_md5       wolfSSL_EVP_md5
+#ifndef NO_MD5
+    #define EVP_md5       wolfSSL_EVP_md5
+#endif
 #define EVP_sha1      wolfSSL_EVP_sha1
 #define EVP_sha256    wolfSSL_EVP_sha256
 #define EVP_sha384    wolfSSL_EVP_sha384
@@ -196,6 +230,7 @@ typedef WOLFSSL_EVP_CIPHER_CTX EVP_CIPHER_CTX;
 #define EVP_des_cbc      wolfSSL_EVP_des_cbc
 #define EVP_des_ede3_cbc wolfSSL_EVP_des_ede3_cbc
 #define EVP_rc4          wolfSSL_EVP_rc4
+#define EVP_idea_cbc     wolfSSL_EVP_idea_cbc
 #define EVP_enc_null     wolfSSL_EVP_enc_null
 
 #define EVP_MD_size        wolfSSL_EVP_MD_size
@@ -219,6 +254,8 @@ typedef WOLFSSL_EVP_CIPHER_CTX EVP_CIPHER_CTX;
 
 #define EVP_PKEY_get1_RSA   wolfSSL_EVP_PKEY_get1_RSA
 #define EVP_PKEY_get1_DSA   wolfSSL_EVP_PKEY_get1_DSA
+#define EVP_PKEY_get1_EC_KEY wolfSSL_EVP_PKEY_get1_EC_KEY
+
 
 #ifndef EVP_MAX_MD_SIZE
     #define EVP_MAX_MD_SIZE   64     /* sha512 */

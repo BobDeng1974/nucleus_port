@@ -1,14 +1,23 @@
 /* sniffer_error.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 #ifndef WOLFSSL_SNIFFER_ERROR_H
@@ -92,10 +101,21 @@
 #define BAD_COMPRESSION_STR 67
 #define BAD_DERIVE_STR 68
 #define ACK_MISSED_STR 69
-#define BAD_DECRYPT    70 
+#define BAD_DECRYPT    70
 
 #define DECRYPT_KEYS_NOT_SETUP 71
 #define CLIENT_HELLO_LATE_KEY_STR 72
+#define GOT_CERT_STATUS_STR 73
+#define RSA_KEY_MISSING_STR 74
+#define NO_SECURE_RENEGOTIATION 75
+
+#define BAD_SESSION_STATS 76
+#define REASSEMBLY_MAX_STR 77
+#define DROPPING_LOST_FRAG_STR 78
+#define DROPPING_PARTIAL_RECORD 79
+#define CLEAR_ACK_FAULT 80
+
+#define BAD_DECRYPT_SIZE 81
 /* !!!! also add to msgTable in sniffer.c and .rc file !!!! */
 
 

@@ -1,21 +1,30 @@
 /* md5.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
-
-#ifndef NO_MD5
 
 #ifndef WOLF_CRYPT_MD5_H
 #define WOLF_CRYPT_MD5_H
 
 #include <wolfssl/wolfcrypt/types.h>
+
+#ifndef NO_MD5
 
 #ifdef HAVE_FIPS
     #define wc_InitMd5   InitMd5
@@ -27,7 +36,6 @@
 #ifdef __cplusplus
     extern "C" {
 #endif
-
 
 /* in bytes */
 enum {
@@ -44,6 +52,8 @@ enum {
 #include "port/pic32/pic32mz-crypt.h"
 #endif
 
+#ifndef WOLFSSL_TI_HASH
+
 /* MD5 digest */
 typedef struct Md5 {
     word32  buffLen;   /* in bytes          */
@@ -58,15 +68,18 @@ typedef struct Md5 {
     #endif
 } Md5;
 
+#else /* WOLFSSL_TI_HASH */
+    #include "wolfssl/wolfcrypt/port/ti/ti-hash.h"
+#endif
+
 WOLFSSL_API void wc_InitMd5(Md5*);
 WOLFSSL_API void wc_Md5Update(Md5*, const byte*, word32);
 WOLFSSL_API void wc_Md5Final(Md5*, byte*);
 WOLFSSL_API int  wc_Md5Hash(const byte*, word32, byte*);
 
-
 #ifdef __cplusplus
     } /* extern "C" */
 #endif
 
-#endif /* WOLF_CRYPT_MD5_H */
 #endif /* NO_MD5 */
+#endif /* WOLF_CRYPT_MD5_H */

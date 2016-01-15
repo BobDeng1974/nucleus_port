@@ -1,14 +1,23 @@
 /* error-crypt.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 #ifndef WOLF_CRYPT_ERROR_H
@@ -18,8 +27,6 @@
 
 #ifdef HAVE_FIPS
 	#include <cyassl/ctaocrypt/error-crypt.h>
-	#define wc_ErrorString    CTaoCryptErrorString
-	#define wc_GetErrorString CTaoCryptGetErrorString
 #endif /* HAVE_FIPS */
 
 #ifdef __cplusplus
@@ -137,6 +144,27 @@ enum {
     THREAD_STORE_KEY_E  = -211,  /* Thread local storage key create failure */
     THREAD_STORE_SET_E  = -212,  /* Thread local storage key set failure */
 
+    MAC_CMP_FAILED_E    = -213,  /* MAC comparison failed */
+    IS_POINT_E          = -214,  /* ECC is point on curve failed */
+    ECC_INF_E           = -215,  /* ECC point infinity error */
+    ECC_PRIV_KEY_E      = -216,  /* ECC private key not valid error */
+
+    SRP_CALL_ORDER_E    = -217,  /* SRP function called in the wrong order. */
+    SRP_VERIFY_E        = -218,  /* SRP proof verification failed. */
+    SRP_BAD_KEY_E       = -219,  /* SRP bad ephemeral values. */
+
+    ASN_NO_SKID         = -220,  /* ASN no Subject Key Identifier found */
+    ASN_NO_AKID         = -221,  /* ASN no Authority Key Identifier found */
+    ASN_NO_KEYUSAGE     = -223,  /* ASN no Key Usage found */
+    SKID_E              = -224,  /* setting Subject Key Identifier error */
+    AKID_E              = -225,  /* setting Authority Key Identifier error */
+    KEYUSAGE_E          = -226,  /* Bad Key Usage value */
+    CERTPOLICIES_E      = -227,  /* setting Certificate Policies error */
+
+    WC_INIT_E           = -228,  /* wolfcrypt failed to initialize */
+    SIG_VERIFY_E        = -229,  /* wolfcrypt signature verify error */
+    BAD_COND_E          = -230,  /* Bad condition variable operation */
+
     MIN_CODE_E          = -300   /* errors -101 - -299 */
 };
 
@@ -149,5 +177,3 @@ WOLFSSL_API const char* wc_GetErrorString(int error);
     } /* extern "C" */
 #endif
 #endif /* WOLF_CRYPT_ERROR_H */
-
-

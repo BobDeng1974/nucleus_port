@@ -1,14 +1,23 @@
 /* ssl.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * a with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 /*
  * ssl.h makes wolfssl backwards compatibile with cyassl
@@ -21,8 +30,8 @@
  * include the new ssl.h
  */
 #include <wolfssl/ssl.h>
-#include <cyassl/ctaocrypt/settings.h>
 #include <cyassl/ctaocrypt/types.h>
+#include <cyassl/ctaocrypt/settings.h>
 
 #ifdef __cplusplus
     extern "C" {
@@ -122,7 +131,6 @@
 #define CyaSSL_get_alert_history         wolfSSL_get_alert_history
 #define CyaSSL_get_current_cipher        wolfSSL_get_current_cipher
 #define CyaSSL_CertManagerUnloadCAs      wolfSSL_CertManagerUnloadCAs
-#define CyaSSL_dtls_set_timeout_init     wolfSSL_dtls_set_timeout_init
 #define CyaSSL_CertManagerEnableOCSP     wolfSSL_CertManagerEnableOCSP
 #define CyaSSL_CTX_check_private_key     wolfSSL_CTX_check_private_key
 #define CyaSSL_CertManagerDisableOCSP    wolfSSL_CertManagerDisableOCSP
@@ -567,6 +575,7 @@
 #define CYASSL_CRL_START_MON             WOLFSSL_CRL_START_MON             /**/
 #define CYASSL_OCSP_NO_NONCE             WOLFSSL_OCSP_NO_NONCE             /**/
 #define CYASSL_OCSP_URL_OVERRIDE         WOLFSSL_OCSP_URL_OVERRIDE
+#define CYASSL_OCSP_CHECKALL             WOLFSSL_OCSP_CHECKALL
 
 #define CyaSSL_CTX_EnableOCSP            wolfSSL_CTX_EnableOCSP
 #define CyaSSL_CTX_OCSP_set_options      wolfSSL_CTX_OCSP_set_options      /**/
@@ -606,6 +615,7 @@
 #define CyaSSL_connect_cert       wolfSSL_connect_cert
 #define CyaSSL_flush_sessions     wolfSSL_flush_sessions
 #define CyaSSL_get_using_nonblock wolfSSL_get_using_nonblock
+#define CyaSSL_PrintSessionStats  wolfSSL_PrintSessionStats
 
 /* DTLS Specific */
 #define CyaSSL_dtls                     wolfSSL_dtls

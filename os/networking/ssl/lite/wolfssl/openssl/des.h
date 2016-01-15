@@ -1,14 +1,23 @@
 /* des.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as wolfSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 /*  des.h defines mini des openssl compatibility layer 
@@ -20,6 +29,8 @@
 #define WOLFSSL_DES_H_
 
 #include <wolfssl/wolfcrypt/settings.h>
+
+#ifndef NO_DES3
 
 #ifdef WOLFSSL_PREFIX
 #include "prefix_des.h"
@@ -69,10 +80,27 @@ typedef WOLFSSL_DES_key_schedule DES_key_schedule;
 #define DES_ncbc_encrypt wolfSSL_DES_ncbc_encrypt
 #define DES_set_odd_parity wolfSSL_DES_set_odd_parity
 #define DES_ecb_encrypt wolfSSL_DES_ecb_encrypt
+#define DES_ede3_cbc_encrypt(input, output, sz, ks1, ks2, ks3, ivec, enc) \
+do {                                                         \
+    Des3 des;                                                \
+    byte key[24];/* EDE uses 24 size key */                  \
+    memcpy(key, (ks1), DES_BLOCK_SIZE);                      \
+    memcpy(&key[DES_BLOCK_SIZE], (ks2), DES_BLOCK_SIZE);     \
+    memcpy(&key[DES_BLOCK_SIZE * 2], (ks3), DES_BLOCK_SIZE); \
+    if (enc) {                                               \
+        wc_Des3_SetKey(&des, key, (const byte*)(ivec), DES_ENCRYPTION);    \
+        wc_Des3_CbcEncrypt(&des, (output), (input), (sz));    \
+    }                                                         \
+    else {                                                    \
+        wc_Des3_SetKey(&des, key, (const byte*)(ivec), DES_ENCRYPTION);    \
+        wc_Des3_CbcDecrypt(&des, (output), (input), (sz));    \
+    }                                                         \
+} while(0)
 
 #ifdef __cplusplus
     } /* extern "C" */
 #endif
 
+#endif /* NO_DES3 */
 
 #endif /* WOLFSSL_DES_H_ */

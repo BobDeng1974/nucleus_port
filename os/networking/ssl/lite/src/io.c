@@ -1,14 +1,23 @@
 /* io.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 #ifdef HAVE_CONFIG_H
@@ -16,6 +25,8 @@
 #endif
 
 #include <wolfssl/wolfcrypt/settings.h>
+
+#ifndef WOLFCRYPT_ONLY
 
 #ifdef _WIN32_WCE
     /* On WinCE winsock2.h must be included before windows.h for socket stuff */
@@ -28,7 +39,7 @@
 
 /* if user writes own I/O callbacks they can define WOLFSSL_USER_IO to remove
    automatic setting of default I/O functions EmbedSend() and EmbedReceive()
-   but they'll still need SetCallback xxx() at end of file 
+   but they'll still need SetCallback xxx() at end of file
 */
 #ifndef WOLFSSL_USER_IO
 
@@ -48,24 +59,26 @@
     #elif defined(FREESCALE_MQX)
         #include <posix.h>
         #include <rtcs.h>
-    #elif defined(WOLFSSL_MDK_ARM)
-        #if defined(WOLFSSL_MDK5)
+    #elif defined(FREESCALE_KSDK_MQX)
+        #include <rtcs.h>
+    #elif defined(WOLFSSL_MDK_ARM) || defined(WOLFSSL_KEIL_TCP_NET)
+        #if !defined(WOLFSSL_MDK_ARM)
             #include "cmsis_os.h"
-            #include "rl_fs.h" 
-            #include "rl_net.h" 
+            #include "rl_net.h"
         #else
             #include <rtl.h>
         #endif
-        #undef RNG
-        #include "WOLFSSL_MDK_ARM.h"
-        #undef RNG
-        #define RNG wolfSSL_RNG 
-        /* for avoiding name conflict in "stm32f2xx.h" */
-        static int errno;
+        #include "errno.h"
+        #define SOCKET_T int
     #elif defined(WOLFSSL_TIRTOS)
         #include <sys/socket.h>
+    #elif defined(FREERTOS_TCP)
+        #include "FreeRTOS_Sockets.h"
     #elif defined(WOLFSSL_IAR_ARM)
         /* nothing */
+    #elif defined(WOLFSSL_VXWORKS)
+        #include <sockLib.h>
+        #include <errno.h>
     #else
         #include <sys/types.h>
         #include <errno.h>
@@ -73,8 +86,15 @@
             #include <unistd.h>
         #endif
         #include <fcntl.h>
-        #if !(defined(DEVKITPRO) || defined(NUCLEUS) ||  defined(HAVE_RTP_SYS) || defined(EBSNET)) \
-            || defined(WOLFSSL_PICOTCP)
+
+        #if defined(NUCLEUS)
+            #include "networking/nu_networking.h"
+        #elif defined(HAVE_RTP_SYS)
+            #include <socket.h>
+        #elif defined(EBSNET)
+            #include "rtipapi.h"  /* errno */
+            #include "socket.h"
+        #elif !defined(DEVKITPRO) && !defined(WOLFSSL_PICOTCP)
             #include <sys/socket.h>
             #include <arpa/inet.h>
             #include <netinet/in.h>
@@ -85,16 +105,6 @@
                 #include <sys/ioctl.h>
             #endif
         #endif
-        #ifdef NUCLEUS
-            #include "networking/nu_networking.h"
-        #endif
-        #ifdef HAVE_RTP_SYS
-            #include <socket.h>
-        #endif
-        #ifdef EBSNET
-            #include "rtipapi.h"  /* errno */
-            #include "socket.h"
-        #endif
     #endif
 #endif /* USE_WINDOWS_API */
 
@@ -102,7 +112,7 @@
     #include <sys/filio.h>
 #endif
 
-#ifdef USE_WINDOWS_API 
+#ifdef USE_WINDOWS_API
     /* no epipe yet */
     #ifndef WSAEPIPE
         #define WSAEPIPE       -12345
@@ -115,14 +125,6 @@
     #define SOCKET_ECONNREFUSED WSAENOTCONN
     #define SOCKET_ECONNABORTED WSAECONNABORTED
     #define close(s) closesocket(s)
-#elif defined(NUCLEUS)
-    #define SOCKET_EWOULDBLOCK  NU_WOULD_BLOCK
-    #define SOCKET_EAGAIN       NU_NO_DATA
-    #define SOCKET_ECONNRESET   NU_RESET
-    #define SOCKET_EINTR        0
-    #define SOCKET_EPIPE        0
-    #define SOCKET_ECONNREFUSED NU_CONNECTION_REFUSED
-    #define SOCKET_ECONNABORTED NU_CONNECTION_REFUSED
 #elif defined(__PPU)
     #define SOCKET_EWOULDBLOCK SYS_NET_EWOULDBLOCK
     #define SOCKET_EAGAIN      SYS_NET_EAGAIN
@@ -131,17 +133,27 @@
     #define SOCKET_EPIPE       SYS_NET_EPIPE
     #define SOCKET_ECONNREFUSED SYS_NET_ECONNREFUSED
     #define SOCKET_ECONNABORTED SYS_NET_ECONNABORTED
-#elif defined(FREESCALE_MQX)
-    /* RTCS doesn't have an EWOULDBLOCK error */
-    #define SOCKET_EWOULDBLOCK EAGAIN
-    #define SOCKET_EAGAIN      EAGAIN
-    #define SOCKET_ECONNRESET  RTCSERR_TCP_CONN_RESET
-    #define SOCKET_EINTR       EINTR
-    #define SOCKET_EPIPE       EPIPE
-    #define SOCKET_ECONNREFUSED RTCSERR_TCP_CONN_REFUSED
-    #define SOCKET_ECONNABORTED RTCSERR_TCP_CONN_ABORTED
-#elif defined(WOLFSSL_MDK_ARM)
-    #if defined(WOLFSSL_MDK5)
+#elif defined(FREESCALE_MQX) || defined(FREESCALE_KSDK_MQX)
+    #if MQX_USE_IO_OLD
+        /* RTCS old I/O doesn't have an EWOULDBLOCK */
+        #define SOCKET_EWOULDBLOCK  EAGAIN
+        #define SOCKET_EAGAIN       EAGAIN
+        #define SOCKET_ECONNRESET   RTCSERR_TCP_CONN_RESET
+        #define SOCKET_EINTR        EINTR
+        #define SOCKET_EPIPE        EPIPE
+        #define SOCKET_ECONNREFUSED RTCSERR_TCP_CONN_REFUSED
+        #define SOCKET_ECONNABORTED RTCSERR_TCP_CONN_ABORTED
+    #else
+        #define SOCKET_EWOULDBLOCK  NIO_EWOULDBLOCK
+        #define SOCKET_EAGAIN       NIO_EAGAIN
+        #define SOCKET_ECONNRESET   NIO_ECONNRESET
+        #define SOCKET_EINTR        NIO_EINTR
+        #define SOCKET_EPIPE        NIO_EPIPE
+        #define SOCKET_ECONNREFUSED NIO_ECONNREFUSED
+        #define SOCKET_ECONNABORTED NIO_ECONNABORTED
+    #endif
+#elif defined(WOLFSSL_MDK_ARM)|| defined(WOLFSSL_KEIL_TCP_NET)
+    #if !defined(WOLFSSL_MDK_ARM)
         #define SOCKET_EWOULDBLOCK BSD_ERROR_WOULDBLOCK
         #define SOCKET_EAGAIN      BSD_ERROR_LOCKED
         #define SOCKET_ECONNRESET  BSD_ERROR_CLOSED
@@ -166,6 +178,27 @@
     #define SOCKET_EPIPE        PICO_ERR_EIO
     #define SOCKET_ECONNREFUSED PICO_ERR_ECONNREFUSED
     #define SOCKET_ECONNABORTED PICO_ERR_ESHUTDOWN
+#elif defined(FREERTOS_TCP)
+    #define SOCKET_EWOULDBLOCK FREERTOS_EWOULDBLOCK
+    #define SOCKET_EAGAIN       FREERTOS_EWOULDBLOCK
+    #define SOCKET_ECONNRESET   FREERTOS_SOCKET_ERROR
+    #define SOCKET_EINTR        FREERTOS_SOCKET_ERROR
+    #define SOCKET_EPIPE        FREERTOS_SOCKET_ERROR
+    #define SOCKET_ECONNREFUSED FREERTOS_SOCKET_ERROR
+    #define SOCKET_ECONNABORTED FREERTOS_SOCKET_ERROR
+#elif defined(NUCLEUS)
+    #define SOCKET_EWOULDBLOCK  NU_WOULD_BLOCK
+    #define SOCKET_EAGAIN       NU_NO_DATA
+    #define SOCKET_ECONNRESET   NU_RESET
+    #define SOCKET_EINTR        0
+    #define SOCKET_EPIPE        0
+    #define SOCKET_ECONNREFUSED NU_CONNECTION_REFUSED
+    #define SOCKET_ECONNABORTED NU_CONNECTION_REFUSED
+
+    /* Map the different socket address structures to Nucleus address structure. */
+    /* User must use struct addr_struct to set and get peer address. */
+    #define sockaddr_storage    addr_struct
+    #define sockaddr            addr_struct
 #else
     #define SOCKET_EWOULDBLOCK EWOULDBLOCK
     #define SOCKET_EAGAIN      EAGAIN
@@ -186,159 +219,38 @@
 #elif defined(WOLFSSL_LWIP)
     #define SEND_FUNCTION lwip_send
     #define RECV_FUNCTION lwip_recv
-#elif defined(NUCLEUS)
-    #define SEND_FUNCTION nucyassl_send
-    #define RECV_FUNCTION nucyassl_recv
-
-/* Variable to hold last Nucleus networking error number */
-static int Nucleus_Net_Errno;
-
-/*************************************************************************
-*
-*   FUNCTION
-*
-*      nucyassl_recv
-*
-*   DESCRIPTION
-*
-*      This function provides a "receive" implementation that maps Nucleus
-*      Networking receive to Cyassl / POSIX-like requirements
-*
-**************************************************************************/
-STATIC INT32 nucyassl_recv(INT sd, CHAR *buf, UINT16 sz, INT16 flags)
-{
-    int recvd;
-
-
-    /* Get data from socket */
-    recvd = NU_Recv(sd, buf, sz, flags);
-
-    /* Check return value */
-    if (recvd < 0)
-    {
-        if (recvd == NU_NOT_CONNECTED)
-        {
-            /* Set received to 0 to show connection closed */
-            recvd = 0;
-        }
-        else
-        {
-            /* Set error number */
-            Nucleus_Net_Errno = recvd;
-
-            /* Set received to -1 to indicate error to caller */
-            recvd = -1;
-        }
-    }
-    else
-    {
-        /* Clear error number */
-        Nucleus_Net_Errno = 0;
-    }
-
-    return (recvd);
-
-} /* nucyassl_recv */
-
-
-/*************************************************************************
-*
-*   FUNCTION
-*
-*      nucyassl_send
-*
-*   DESCRIPTION
-*
-*      This function provides a "send" implementation that maps Nucleus
-*      Networking send to Cyassl / POSIX-like requirements
-*
-**************************************************************************/
-STATIC int nucyassl_send(INT sd, CHAR *buf, UINT16 sz, INT16 flags)
-{
-    int sent;
-
-
-    /* Call Nucleus Send API */
-    sent = NU_Send(sd, buf, sz, flags);
-
-    /* See if error occurred */
-    if (sent < 0)
-    {
-        /* Set error number */
-        Nucleus_Net_Errno = sent;
-
-        /* Set sent to -1 to indicate error to caller */
-        sent = -1;
-    }
-    else
-    {
-        /* Clear error number */
-        Nucleus_Net_Errno = 0;
-    }
-
-    return (sent);
-
-} /* nucyassl_send */
-
-#ifdef WOLFSSL_DTLS
-#define SELECT_FUNCTION     nucyassl_select
-
-/*************************************************************************
-*
-*   FUNCTION
-*
-*      nucyassl_select
-*
-*   DESCRIPTION
-*
-*      This function provides a "select" implementation. This is added to
-*      map the SO_RCVTIMEO functionality required for CyaSSL.
-*
-**************************************************************************/
-STATIC int nucyassl_select(INT sd, UINT32 timeout)
-{
-    FD_SET readfs;
-    STATUS status;
-
-    /* Initialize fs data for this socket. */
-    NU_FD_Init(&readfs);
-    NU_FD_Set(sd, &readfs);
-
-    /* Wait for data on this socket. */
-    status = NU_Select((sd + 1), &readfs, NU_NULL, NU_NULL,
-                       (timeout * NU_TICKS_PER_SECOND));
-
-    if (status < 0)
-    {
-        /* Set error number */
-        Nucleus_Net_Errno = status;
-
-        /* Set sent to -1 to indicate error to caller */
-        status = -1;
-    }
-
-    /* Return status to the caller. */
-    return (status);
-
-} /* nucyassl_select */
-#endif
 #elif defined(WOLFSSL_PICOTCP)
     #define SEND_FUNCTION pico_send
     #define RECV_FUNCTION pico_recv
+#elif defined(FREERTOS_TCP)
+    #define RECV_FUNCTION(a,b,c,d)  FreeRTOS_recv((Socket_t)(a),(void*)(b), (size_t)(c), (BaseType_t)(d))
+    #define SEND_FUNCTION(a,b,c,d)  FreeRTOS_send((Socket_t)(a),(void*)(b), (size_t)(c), (BaseType_t)(d))
+#elif defined(NUCLEUS)
+    #define SEND_FUNCTION NU_Send
+    #define RECV_FUNCTION NU_Recv
+
+    #ifdef WOLFSSL_DTLS
+        static int nucleus_select(int sd, word32 timeout);
+        #define SELECT_FUNCTION     nucleus_select
+    #endif
+
+   /* Variable to hold last Nucleus networking error number */
+   static int Nucleus_Net_Errno;
+
 #else
     #define SEND_FUNCTION send
     #define RECV_FUNCTION recv
 #endif
 
 
-/* Translates return codes returned from 
- * send() and recv() if need be. 
+/* Translates return codes returned from
+ * send() and recv() if need be.
  */
 static INLINE int TranslateReturnCode(int old, int sd)
 {
     (void)sd;
 
-#ifdef FREESCALE_MQX
+#if defined(FREESCALE_MQX) || defined(FREESCALE_KSDK_MQX)
     if (old == 0) {
         errno = SOCKET_EWOULDBLOCK;
         return -1;  /* convert to BSD style wouldblock as error */
@@ -348,6 +260,28 @@ static INLINE int TranslateReturnCode(int old, int sd)
         errno = RTCS_geterror(sd);
         if (errno == RTCSERR_TCP_CONN_CLOSING)
             return 0;   /* convert to BSD style closing */
+        if (errno == RTCSERR_TCP_CONN_RLSD)
+            errno = SOCKET_ECONNRESET;
+        if (errno == RTCSERR_TCP_TIMED_OUT)
+            errno = SOCKET_EAGAIN;
+    }
+#elif defined(NUCLEUS)
+    if (old < 0) {
+        if (old == NU_NOT_CONNECTED) {
+            /* Set received to 0 to show connection closed */
+            old = 0;
+        }
+        else {
+            /* Set error number */
+            Nucleus_Net_Errno = old;
+
+            /* Set received to -1 to indicate error to caller */
+            old = -1;
+        }
+    }
+    else {
+        /* Clear error number */
+        Nucleus_Net_Errno = 0;
     }
 #endif
 
@@ -356,7 +290,7 @@ static INLINE int TranslateReturnCode(int old, int sd)
 
 static INLINE int LastError(void)
 {
-#ifdef USE_WINDOWS_API 
+#ifdef USE_WINDOWS_API
     return WSAGetLastError();
 #elif defined(EBSNET)
     return xn_getlasterror();
@@ -382,43 +316,31 @@ int EmbedReceive(WOLFSSL *ssl, char *buf, int sz, void *ctx)
         if (wolfSSL_dtls(ssl)
                      && !wolfSSL_get_using_nonblock(ssl)
                      && dtls_timeout != 0) {
-#if defined(NUCLEUS)
-
-            /* Wait for data on this socket. */
-            recvd = SELECT_FUNCTION(sd, dtls_timeout);
-
-            /* Convert the return code to CyaSSL specific return code. */
-            recvd = TranslateReturnCode(recvd, sd);
-
-#else
-            #ifdef USE_WINDOWS_API
-                DWORD timeout = dtls_timeout * 1000;
+            #ifdef SELECT_FUNCTION
+                 /* Wait for data on this socket. */
+                 recvd = (int)SELECT_FUNCTION(sd, dtls_timeout);
+                 recvd = TranslateReturnCode(recvd, sd);
             #else
-                struct timeval timeout;
-                XMEMSET(&timeout, 0, sizeof(timeout));
-                timeout.tv_sec = dtls_timeout;
+                #ifdef USE_WINDOWS_API
+                    DWORD timeout = dtls_timeout * 1000;
+                #else
+                    struct timeval timeout;
+                    XMEMSET(&timeout, 0, sizeof(timeout));
+                    timeout.tv_sec = dtls_timeout;
+                #endif
+                if (setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout,
+                               sizeof(timeout)) != 0) {
+                    WOLFSSL_MSG("setsockopt rcvtimeo failed");
+                }
             #endif
-            if (setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout,
-                           sizeof(timeout)) != 0) {
-                WOLFSSL_MSG("setsockopt rcvtimeo failed");
-            }
-#endif /* defined(NUCLEUS) */
         }
     }
 #endif
 
-#if defined(NUCLEUS)
-    if (recvd == 0)
-    {
-#endif /* defined(NUCLEUS) */
-
-    recvd = (int)RECV_FUNCTION(sd, buf, sz, ssl->rflags);
-
-    recvd = TranslateReturnCode(recvd, sd);
-
-#if defined(NUCLEUS)
+    if (recvd == 0) {
+        recvd = (int)RECV_FUNCTION(sd, buf, sz, ssl->rflags);
+        recvd = TranslateReturnCode(recvd, sd);
     }
-#endif /* defined(NUCLEUS) */
 
     if (recvd < 0) {
         err = LastError();
@@ -474,6 +396,7 @@ int EmbedSend(WOLFSSL* ssl, char *buf, int sz, void *ctx)
     int err;
 
     sent = (int)SEND_FUNCTION(sd, &buf[sz - len], len, ssl->wflags);
+    sent = TranslateReturnCode(sent, sd);
 
     if (sent < 0) {
         err = LastError();
@@ -500,7 +423,7 @@ int EmbedSend(WOLFSSL* ssl, char *buf, int sz, void *ctx)
             return WOLFSSL_CBIO_ERR_GENERAL;
         }
     }
- 
+
     return sent;
 }
 
@@ -512,107 +435,19 @@ int EmbedSend(WOLFSSL* ssl, char *buf, int sz, void *ctx)
 #ifdef USE_WINDOWS_API
    #define XSOCKLENT int
 #elif defined(NUCLEUS)
-   #define XSOCKLENT INT16
+   #define XSOCKLENT word16
 #else
    #define XSOCKLENT socklen_t
 #endif
 
 #if defined(NUCLEUS)
-#define SENDTO_FUNCTION     nucyassl_sendto
-#define RECVFROM_FUNCTION   nucyassl_recvfrom
-
-/* Map the different socket address structures to Nucleus address structure. */
-/* User must use struct addr_struct to set and get peer address. */
-#define sockaddr_storage    addr_struct
-#define sockaddr            addr_struct
-
-/*************************************************************************
-*
-*   FUNCTION
-*
-*      nucyassl_recvfrom
-*
-*   DESCRIPTION
-*
-*      This function provides a "receive-from" implementation that maps
-*      Nucleus Networking receive to Cyassl / POSIX-like requirements
-*
-**************************************************************************/
-STATIC INT32 nucyassl_recvfrom(INT sd, CHAR *buf, UINT16 sz, INT16 flags,
-                              struct addr_struct *peer, INT16 *peersz)
-{
-    int recvd;
-
-    /* Clear the peer address. */
-    memset(peer, 0, sizeof(struct addr_struct));
-
-    /* Get data from the socket. */
-    recvd = NU_Recv_From(sd, buf, sz, flags, peer, peersz);
-
-    /* Check return value. */
-    if (recvd < 0)
-    {
-        /* Set error number. */
-        Nucleus_Net_Errno = recvd;
-
-        /* Set received to -1 to indicate error to caller. */
-        recvd = -1;
-    }
-    else
-    {
-        /* Clear error number. */
-        Nucleus_Net_Errno = 0;
-    }
-
-    /* Return status to the caller. */
-    return (recvd);
-
-} /* nucyassl_recvfrom */
-
-/*************************************************************************
-*
-*   FUNCTION
-*
-*      nucyassl_sendto
-*
-*   DESCRIPTION
-*
-*      This function provides a "send-to" implementation that maps Nucleus
-*      Networking send to Cyassl / POSIX-like requirements
-*
-**************************************************************************/
-STATIC int nucyassl_sendto(INT sd, CHAR *buf, UINT16 sz, INT16 flags,
-                          struct addr_struct *peer, INT16 peersz)
-{
-    int sent;
-
-    /* Call Nucleus Send API */
-    sent = NU_Send_To(sd, buf, sz, flags, peer, peersz);
-
-    /* See if error occurred */
-    if (sent < 0)
-    {
-        /* Set error number */
-        Nucleus_Net_Errno = sent;
-
-        /* Set sent to -1 to indicate error to caller */
-        sent = -1;
-    }
-    else
-    {
-        /* Clear error number */
-        Nucleus_Net_Errno = 0;
-    }
-
-    /* Return status code to caller. */
-    return (sent);
-
-} /* nucyassl_sendto */
-
+    #define SENDTO_FUNCTION     NU_Send_To
+    #define RECVFROM_FUNCTION   NU_Recv_From
 #else
-#define SENDTO_FUNCTION sendto
-#define RECVFROM_FUNCTION recvfrom
+    #define SENDTO_FUNCTION     sendto
+    #define RECVFROM_FUNCTION   recvfrom
 #endif
+
 
 /* The receive embedded callback
  *  return : nb bytes read, or error
@@ -620,7 +455,7 @@ STATIC int nucyassl_sendto(INT sd, CHAR *buf, UINT16 sz, INT16 flags,
 int EmbedReceiveFrom(WOLFSSL *ssl, char *buf, int sz, void *ctx)
 {
     WOLFSSL_DTLS_CTX* dtlsCtx = (WOLFSSL_DTLS_CTX*)ctx;
-    int recvd;
+    int recvd = 0;
     int err;
     int sd = dtlsCtx->fd;
     int dtls_timeout = wolfSSL_dtls_get_current_timeout(ssl);
@@ -630,14 +465,11 @@ int EmbedReceiveFrom(WOLFSSL *ssl, char *buf, int sz, void *ctx)
     WOLFSSL_ENTER("EmbedReceiveFrom()");
 
     if (!wolfSSL_get_using_nonblock(ssl) && dtls_timeout != 0) {
-#if defined(NUCLEUS)
-
+    #ifdef SELECT_FUNCTION
         /* Wait for data on this socket. */
-        recvd = SELECT_FUNCTION(sd, dtls_timeout);
-
-        /* Convert the return code to CyaSSL specific return code. */
+        recvd = (int)SELECT_FUNCTION(sd, dtls_timeout);
         recvd = TranslateReturnCode(recvd, sd);
-#else
+    #else
         #ifdef USE_WINDOWS_API
             DWORD timeout = dtls_timeout * 1000;
         #else
@@ -649,20 +481,17 @@ int EmbedReceiveFrom(WOLFSSL *ssl, char *buf, int sz, void *ctx)
                        sizeof(timeout)) != 0) {
                 WOLFSSL_MSG("setsockopt rcvtimeo failed");
         }
-#endif /* defined(NUCLEUS) */
+    #endif
     }
 
-#if defined(NUCLEUS)
-    if (recvd == 0)
-    {
-#endif /* defined(NUCLEUS) */
-    recvd = (int)RECVFROM_FUNCTION(sd, buf, sz, ssl->rflags,
-                                  (struct sockaddr*)&peer, &peerSz);
+    if (recvd == 0) {
+        /* Clear peer address */
+        XMEMSET(&peer, 0, sizeof(peer));
 
-    recvd = TranslateReturnCode(recvd, sd);
-#if defined(NUCLEUS)
+        recvd = (int)RECVFROM_FUNCTION(sd, buf, sz, ssl->rflags,
+                                      (struct sockaddr*)&peer, &peerSz);
+        recvd = TranslateReturnCode(recvd, sd);
     }
-#endif /* defined(NUCLEUS) */
 
     if (recvd < 0) {
         err = LastError();
@@ -724,6 +553,8 @@ int EmbedSendTo(WOLFSSL* ssl, char *buf, int sz, void *ctx)
     sent = (int)SENDTO_FUNCTION(sd, &buf[sz - len], len, ssl->wflags,
                                 (const struct sockaddr*)dtlsCtx->peer.sa,
                                 dtlsCtx->peer.sz);
+    sent = TranslateReturnCode(sent, sd);
+
     if (sent < 0) {
         err = LastError();
         WOLFSSL_MSG("Embed Send To error");
@@ -749,7 +580,7 @@ int EmbedSendTo(WOLFSSL* ssl, char *buf, int sz, void *ctx)
             return WOLFSSL_CBIO_ERR_GENERAL;
         }
     }
- 
+
     return sent;
 }
 
@@ -759,42 +590,31 @@ int EmbedSendTo(WOLFSSL* ssl, char *buf, int sz, void *ctx)
  */
 int EmbedGenerateCookie(WOLFSSL* ssl, byte *buf, int sz, void *ctx)
 {
-#if defined(NUCLEUS)
-    WOLFSSL_DTLS_CTX* dtlsCtx = (WOLFSSL_DTLS_CTX*)(&(ssl->buffers.dtlsCtx));
-#else
-    int sd = ssl->wfd;
-#endif /* defined(NUCLEUS) */
+    WOLFSSL_DTLS_CTX* dtlsCtx = (WOLFSSL_DTLS_CTX*)ctx;
     struct sockaddr_storage peer;
     XSOCKLENT peerSz = sizeof(peer);
     byte digest[SHA_DIGEST_SIZE];
-    int  ret = 0;
+    int ret = 0;
 
-#if defined(NUCLEUS)
-    {
-        if ( (dtlsCtx->peer.sz == 0) || (!dtlsCtx->peer.sa) ) {
-            WOLFSSL_MSG("Peer address was not set for this session");
-            return GEN_COOKIE_E;
-        }
+    (void)ssl;
 
-        /* Use peer's address as cookie. */
-        XMEMCPY(&peer, dtlsCtx->peer.sa, dtlsCtx->peer.sz);
-    }
-#else
-    (void)ctx;
-
-    XMEMSET(&peer, 0, sizeof(peer));
-    if (getpeername(sd, (struct sockaddr*)&peer, &peerSz) != 0) {
-        WOLFSSL_MSG("getpeername failed in EmbedGenerateCookie");
+    if (dtlsCtx == NULL || dtlsCtx->peer.sz == 0 || dtlsCtx->peer.sa == NULL) {
+        WOLFSSL_MSG("Peer address was not set for this session");
         return GEN_COOKIE_E;
     }
-#endif /* defined(NUCLEUS) */
+
+    /* Use peer's address as cookie. */
+    XMEMSET(&peer, 0, sizeof(peer));
+    XMEMCPY(&peer, dtlsCtx->peer.sa, dtlsCtx->peer.sz);
 
     ret = wc_ShaHash((byte*)&peer, peerSz, digest);
-    if (ret != 0)
+    if (ret != 0) {
         return ret;
+    }
 
-    if (sz > SHA_DIGEST_SIZE)
+    if (sz > SHA_DIGEST_SIZE) {
         sz = SHA_DIGEST_SIZE;
+    }
     XMEMCPY(buf, digest, sz);
 
     return sz;
@@ -803,6 +623,8 @@ int EmbedGenerateCookie(WOLFSSL* ssl, byte *buf, int sz, void *ctx)
 #endif /* WOLFSSL_DTLS */
 
 #ifdef HAVE_OCSP
+
+#include <stdlib.h>   /* atoi() */
 
 
 static int Word16ToString(char* d, word16 number)
@@ -836,16 +658,15 @@ static int Word16ToString(char* d, word16 number)
     return i;
 }
 
-#ifdef NUCLEUS
+#if defined(NUCLEUS)
 
-static INLINE int tcp_connect(SOCKET_T* sockfd, const char* ip, word16 port)
+static int tcp_connect(SOCKET_T* sockfd, const char* ip, word16 port)
 {
     STATUS status;
     struct addr_struct servaddr;
     NU_HOSTENT *hentry;
     INT family;
     CHAR test_ip[MAX_ADDRESS_SIZE] = {0};
-
 
     XMEMSET(&servaddr, 0, sizeof(struct addr_struct));
 
@@ -854,37 +675,32 @@ static INLINE int tcp_connect(SOCKET_T* sockfd, const char* ip, word16 port)
      */
 #if (INCLUDE_IPV6 == NU_TRUE)
     /* Search for a ':' to determine if the address is IPv4 or IPv6. */
-    if (memchr(ip, (int)':', 80) != NU_NULL)
-    {
+    if (XMEMCHR(ip, (int)':', MAX_ADDRESS_SIZE) != NU_NULL) {
         family = NU_FAMILY_IP6;
     }
     else
 #endif
+    {
 #if (INCLUDE_IPV4 == NU_FALSE)
-    {
         /* An IPv6 address was not passed into the routine. */
-        return(-1);
-    }
+        return -1;
 #else
-    {
         family = NU_FAMILY_IP;
-    }
 #endif
+    }
 
     /* Convert the string to an array. */
     status = NU_Inet_PTON(family, (char*)ip, test_ip);
 
     /* If the URI contains an IP address, copy it into the server structure. */
-    if (status == NU_SUCCESS)
-    {
+    if (status == NU_SUCCESS) {
         XMEMCPY(servaddr.id.is_ip_addrs, test_ip, MAX_ADDRESS_SIZE);
     }
 
     /* If the application did not pass in an IP address, resolve the host
      * name into a valid IP address.
      */
-    else
-    {
+    else {
         /* If IPv6 is enabled, default to IPv6.  If the host does not have
          * an IPv6 address, an IPv4-mapped IPv6 address will be returned that
          * can be used as an IPv6 address.
@@ -897,9 +713,7 @@ static INLINE int tcp_connect(SOCKET_T* sockfd, const char* ip, word16 port)
 
         /* Try getting host info by name */
         hentry = NU_Get_IP_Node_By_Name((char*)ip, family, DNS_V4MAPPED, &status);
-
-        if (hentry)
-        {
+        if (hentry) {
             /* Copy the hentry data into the server structure */
             memcpy(servaddr.id.is_ip_addrs, *hentry->h_addr_list, hentry->h_length);
             family = hentry->h_addrtype;
@@ -909,9 +723,8 @@ static INLINE int tcp_connect(SOCKET_T* sockfd, const char* ip, word16 port)
         }
 
         /* If the host name could not be resolved, return an error. */
-        else
-        {
-            return(-1);
+        else {
+            return -1;
         }
     }
 
@@ -922,20 +735,17 @@ static INLINE int tcp_connect(SOCKET_T* sockfd, const char* ip, word16 port)
     servaddr.port = port;
 
     status = NU_Socket(family, NU_TYPE_STREAM, NU_NONE);
-    if (status >= 0)
-    {
+    if (status >= 0) {
         /* Assign socket */
         *sockfd = status;
     }
-    else
-    {
+    else {
         WOLFSSL_MSG("bad socket fd, out of fds?");
         return(-1);
     }
 
     status = NU_Connect((INT)*sockfd, &servaddr, 0);
-    if (status != *sockfd)
-    {
+    if (status != *sockfd) {
         WOLFSSL_MSG("OCSP responder tcp connect failed");
         return -1;
     }
@@ -1016,7 +826,6 @@ static int tcp_connect(SOCKET_T* sockfd, const char* ip, word16 port)
 
     return 0;
 }
-
 #endif
 
 static int build_http_request(const char* domainName, const char* path,
@@ -1068,14 +877,14 @@ static int decode_url(const char* url, int urlSz,
         else
         {
             int i, cur;
-    
+
             /* need to break the url down into scheme, address, and port */
             /*     "http://example.com:8080/" */
             /*     "http://[::1]:443/"        */
             if (XSTRNCMP(url, "http://", 7) == 0) {
                 cur = 7;
             } else cur = 0;
-    
+
             i = 0;
             if (url[cur] == '[') {
                 cur++;
@@ -1093,7 +902,7 @@ static int decode_url(const char* url, int urlSz,
             }
             outName[i] = 0;
             /* Need to pick out the path after the domain name */
-    
+
             if (cur < urlSz && url[cur] == ':') {
                 char port[6];
                 int j;
@@ -1104,7 +913,7 @@ static int decode_url(const char* url, int urlSz,
                         i < 6) {
                     port[i++] = url[cur++];
                 }
-    
+
                 for (j = 0; j < i; j++) {
                     if (port[j] < '0' || port[j] > '9') return -1;
                     bigPort = (bigPort * 10) + (port[j] - '0');
@@ -1113,7 +922,7 @@ static int decode_url(const char* url, int urlSz,
             }
             else
                 *outPort = 80;
-    
+
             if (cur < urlSz && url[cur] == '/') {
                 i = 0;
                 while (cur < urlSz && url[cur] != 0 && i < 80) {
@@ -1150,11 +959,7 @@ static int process_http_response(int sfd, byte** respBuf,
     start = end = NULL;
     do {
         if (end == NULL) {
-#ifdef NUCLEUS
-            result = (int)RECV_FUNCTION(sfd, (char*)(httpBuf+len), httpBufSz-len-1, NU_NULL);
-#else
             result = (int)recv(sfd, (char*)httpBuf+len, httpBufSz-len-1, 0);
-#endif
             if (result > 0) {
                 len += result;
                 start = (char*)httpBuf;
@@ -1204,7 +1009,7 @@ static int process_http_response(int sfd, byte** respBuf,
                     WOLFSSL_MSG("process_http_response not ocsp-response");
                     return -1;
                 }
-                
+
                 if (state == phr_http_start) state = phr_have_type;
                 else if (state == phr_have_length) state = phr_wait_end;
                 else {
@@ -1224,12 +1029,12 @@ static int process_http_response(int sfd, byte** respBuf,
                     return -1;
                 }
             }
-            
+
             start = end + 2;
         }
     } while (state != phr_http_end);
 
-    recvBuf = (byte*)XMALLOC(recvBufSz, NULL, DYNAMIC_TYPE_IN_BUFFER);
+    recvBuf = (byte*)XMALLOC(recvBufSz, NULL, DYNAMIC_TYPE_OCSP);
     if (recvBuf == NULL) {
         WOLFSSL_MSG("process_http_response couldn't create response buffer");
         return -1;
@@ -1241,11 +1046,7 @@ static int process_http_response(int sfd, byte** respBuf,
 
     /* receive the OCSP response data */
     do {
-#ifdef NUCLEUS
-        result = (int)RECV_FUNCTION(sfd, (char*)(recvBuf+len), recvBufSz-len, 0);
-#else
         result = (int)recv(sfd, (char*)recvBuf+len, recvBufSz-len, 0);
-#endif
         if (result > 0)
             len += result;
         else {
@@ -1279,7 +1080,7 @@ int EmbedOcspLookup(void* ctx, const char* url, int urlSz,
     path = (char*)XMALLOC(80, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (path == NULL)
         return -1;
-    
+
     domainName = (char*)XMALLOC(80, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (domainName == NULL) {
         XFREE(path, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -1302,8 +1103,8 @@ int EmbedOcspLookup(void* ctx, const char* url, int urlSz,
         /* Note, the library uses the EmbedOcspRespFree() callback to
          * free this buffer. */
         int   httpBufSz = SCRATCH_BUFFER_SIZE;
-        byte* httpBuf   = (byte*)XMALLOC(httpBufSz, NULL, 
-                                                        DYNAMIC_TYPE_IN_BUFFER);
+        byte* httpBuf   = (byte*)XMALLOC(httpBufSz, NULL,
+                                                        DYNAMIC_TYPE_OCSP);
 
         if (httpBuf == NULL) {
             WOLFSSL_MSG("Unable to create OCSP response buffer");
@@ -1312,20 +1113,6 @@ int EmbedOcspLookup(void* ctx, const char* url, int urlSz,
             httpBufSz = build_http_request(domainName, path, ocspReqSz,
                                                             httpBuf, httpBufSz);
 
-#ifdef NUCLEUS
-    if ((tcp_connect(&sfd, domainName, port) == 0) && (sfd >= 0)) {
-        int written;
-        written = (int)SEND_FUNCTION(sfd, (char*)httpBuf, httpBufSz, NU_NULL);
-        if (written == httpBufSz) {
-            written = (int)SEND_FUNCTION(sfd, (char*)ocspReqBuf, ocspReqSz, NU_NULL);
-            if (written == ocspReqSz) {
-                ret = process_http_response(sfd, ocspRespBuf,
-                                                 httpBuf, SCRATCH_BUFFER_SIZE);
-            }
-        }
-        NU_Close_Socket(sfd);
-    }
-#else
             if ((tcp_connect(&sfd, domainName, port) != 0) || (sfd <= 0)) {
                 WOLFSSL_MSG("OCSP Responder connection failed");
             }
@@ -1343,8 +1130,7 @@ int EmbedOcspLookup(void* ctx, const char* url, int urlSz,
             }
 
             close(sfd);
-            XFREE(httpBuf, NULL, DYNAMIC_TYPE_IN_BUFFER);
-#endif
+            XFREE(httpBuf, NULL, DYNAMIC_TYPE_OCSP);
         }
     }
 
@@ -1362,7 +1148,7 @@ void EmbedOcspRespFree(void* ctx, byte *resp)
     (void)ctx;
 
     if (resp)
-        XFREE(resp, NULL, DYNAMIC_TYPE_IN_BUFFER);
+        XFREE(resp, NULL, DYNAMIC_TYPE_OCSP);
 }
 
 
@@ -1384,13 +1170,13 @@ WOLFSSL_API void wolfSSL_SetIOSend(WOLFSSL_CTX *ctx, CallbackIOSend CBIOSend)
 
 WOLFSSL_API void wolfSSL_SetIOReadCtx(WOLFSSL* ssl, void *rctx)
 {
-	ssl->IOCB_ReadCtx = rctx;
+    ssl->IOCB_ReadCtx = rctx;
 }
 
 
 WOLFSSL_API void wolfSSL_SetIOWriteCtx(WOLFSSL* ssl, void *wctx)
 {
-	ssl->IOCB_WriteCtx = wctx;
+    ssl->IOCB_WriteCtx = wctx;
 }
 
 
@@ -1414,7 +1200,7 @@ WOLFSSL_API void* wolfSSL_GetIOWriteCtx(WOLFSSL* ssl)
 
 WOLFSSL_API void wolfSSL_SetIOReadFlags(WOLFSSL* ssl, int flags)
 {
-    ssl->rflags = flags; 
+    ssl->rflags = flags;
 }
 
 
@@ -1434,14 +1220,14 @@ WOLFSSL_API void wolfSSL_CTX_SetGenCookie(WOLFSSL_CTX* ctx, CallbackGenCookie cb
 
 WOLFSSL_API void wolfSSL_SetCookieCtx(WOLFSSL* ssl, void *ctx)
 {
-	ssl->IOCB_CookieCtx = ctx;
+    ssl->IOCB_CookieCtx = ctx;
 }
 
 
 WOLFSSL_API void* wolfSSL_GetCookieCtx(WOLFSSL* ssl)
 {
     if (ssl)
-	    return ssl->IOCB_CookieCtx;
+        return ssl->IOCB_CookieCtx;
 
     return NULL;
 }
@@ -1557,3 +1343,26 @@ void wolfSSL_SetIO_NetX(WOLFSSL* ssl, NX_TCP_SOCKET* nxSocket, ULONG waitOption)
 
 #endif /* HAVE_NETX */
 
+
+#if defined(NUCLEUS)
+
+    #ifdef WOLFSSL_DTLS
+        /* This function provides a "select" implementation. This is added to
+        *      map the SO_RCVTIMEO functionality required for wolfSSL. */
+        static int nucleus_select(int sd, word32 timeout)
+        {
+            FD_SET readfs;
+
+            /* Initialize fs data for this socket. */
+            NU_FD_Init(&readfs);
+            NU_FD_Set(sd, &readfs);
+
+            /* Wait for data on this socket. */
+            return NU_Select((sd + 1), &readfs, NU_NULL, NU_NULL,
+                               (timeout * NU_TICKS_PER_SECOND));
+        }
+    #endif /* WOLFSSL_DTLS */
+
+#endif /* NUCLEUS */
+
+#endif /* WOLFCRYPT_ONLY */

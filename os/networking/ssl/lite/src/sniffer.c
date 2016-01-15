@@ -1,14 +1,23 @@
 /* sniffer.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
@@ -16,6 +25,7 @@
 
 #include <wolfssl/wolfcrypt/settings.h>
 
+#ifndef WOLFCRYPT_ONLY
 #ifdef WOLFSSL_SNIFFER
 
 #include <assert.h>
@@ -43,14 +53,15 @@
 #endif
 
 
-#ifndef min
+#ifndef WOLFSSL_HAVE_MIN
+#define WOLFSSL_HAVE_MIN
 
 static INLINE word32 min(word32 a, word32 b)
 {
     return a > b ? b : a;
 }
 
-#endif
+#endif /* WOLFSSL_HAVE_MIN */
 
 #ifndef WOLFSSL_SNIFFER_TIMEOUT
     #define WOLFSSL_SNIFFER_TIMEOUT 900
@@ -227,7 +238,20 @@ static const char* const msgTable[] =
 
     /* 71 */
     "Decrypt Keys Not Set Up",
-    "Late Key Load Error"
+    "Late Key Load Error",
+    "Got Certificate Status msg",
+    "RSA Key Missing Error",
+    "Secure Renegotiation Not Supported",
+
+    /* 76 */
+    "Get Session Stats Failure",
+    "Reassembly Buffer Size Exceeded",
+    "Dropping Lost Fragment",
+    "Dropping Partial Record",
+    "Clear ACK Fault",
+
+    /* 81 */
+    "Bad Decrypt Size"
 };
 
 
@@ -299,6 +323,10 @@ typedef struct Flags {
     byte           clientHello;     /* processed client hello yet, for SSLv2 */
     byte           finCount;        /* get both FINs before removing */
     byte           fatalError;      /* fatal error state */
+    byte           cliAckFault;     /* client acked unseen data from server */
+    byte           srvAckFault;     /* server acked unseen data from client */
+    byte           cliSkipPartial;  /* client skips partial data to catch up */
+    byte           srvSkipPartial;  /* server skips partial data to catch up */
 } Flags;
 
 
@@ -329,6 +357,8 @@ typedef struct SnifferSession {
     time_t         lastUsed;          /* last used ticks */
     PacketBuffer*  cliReassemblyList; /* client out of order packets */
     PacketBuffer*  srvReassemblyList; /* server out of order packets */
+    word32         cliReassemblyMemory; /* client packet memory used */
+    word32         srvReassemblyMemory; /* server packet memory used */
     struct SnifferSession* next;      /* for hash table list */
     byte*          ticketID;          /* mac ID of session ticket */
 } SnifferSession;
@@ -344,6 +374,20 @@ static SnifferSession* SessionTable[HASH_SIZE];
 static wolfSSL_Mutex SessionMutex;
 static int SessionCount = 0;
 
+/* Recovery of missed data switches and stats */
+static wolfSSL_Mutex RecoveryMutex;      /* for stats */
+static int RecoveryEnabled    = 0;       /* global switch */
+static int MaxRecoveryMemory  = -1;      /* per session max recovery memory */
+static word32 MissedDataSessions = 0;    /* # of sessions with missed data */
+
+
+static void UpdateMissedDataSessions(void)
+{
+    LockMutex(&RecoveryMutex);
+    MissedDataSessions += 1;
+    UnLockMutex(&RecoveryMutex);
+}
+
 
 /* Initialize overall Sniffer */
 void ssl_InitSniffer(void)
@@ -351,6 +395,7 @@ void ssl_InitSniffer(void)
     wolfSSL_Init();
     InitMutex(&ServerListMutex);
     InitMutex(&SessionMutex);
+    InitMutex(&RecoveryMutex);
 }
 
 
@@ -472,6 +517,7 @@ void ssl_FreeSniffer(void)
     UnLockMutex(&SessionMutex);
     UnLockMutex(&ServerListMutex);
 
+    FreeMutex(&RecoveryMutex);
     FreeMutex(&SessionMutex);
     FreeMutex(&ServerListMutex);
 
@@ -511,6 +557,10 @@ static void InitFlags(Flags* flags)
     flags->clientHello    = 0;
     flags->finCount       = 0;
     flags->fatalError     = 0;
+    flags->cliAckFault    = 0;
+    flags->srvAckFault    = 0;
+    flags->cliSkipPartial = 0;
+    flags->srvSkipPartial = 0;
 }
 
 
@@ -541,6 +591,8 @@ static void InitSession(SnifferSession* session)
     session->lastUsed       = 0;
     session->cliReassemblyList = 0;
     session->srvReassemblyList = 0;
+    session->cliReassemblyMemory = 0;
+    session->srvReassemblyMemory = 0;
     session->next           = 0;
     session->ticketID       = 0;
     
@@ -1064,8 +1116,12 @@ static int SetNamedPrivateKey(const char* name, const char* address, int port,
         }
         XMEMSET(namedKey, 0, sizeof(NamedKey));
 
-        namedKey->nameSz = (word32)strnlen(name, sizeof(namedKey->name));
-        strncpy(namedKey->name, name, sizeof(namedKey->name));
+        namedKey->nameSz = (word32)XSTRLEN(name);
+        XSTRNCPY(namedKey->name, name, sizeof(namedKey->name));
+        if (namedKey->nameSz >= sizeof(namedKey->name)) {
+            namedKey->nameSz = sizeof(namedKey->name) - 1;
+            namedKey->name[namedKey->nameSz] = '\0';
+        }
 
         ret = LoadKeyFile(&namedKey->key, &namedKey->keySz,
                           keyFile, type, password);
@@ -1101,7 +1157,7 @@ static int SetNamedPrivateKey(const char* name, const char* address, int port,
         sniffer->server = serverIp;
         sniffer->port = port;
 
-        sniffer->ctx = SSL_CTX_new(SSLv3_client_method());
+        sniffer->ctx = SSL_CTX_new(TLSv1_client_method());
         if (!sniffer->ctx) {
             SetError(MEMORY_STR, error, NULL, 0);
 #ifdef HAVE_SNI
@@ -1277,6 +1333,12 @@ static int ProcessClientKeyExchange(const byte* input, int* sslBytes,
     RsaKey key;
     int    ret;
 
+    if (session->sslServer->buffers.key.buffer == NULL ||
+        session->sslServer->buffers.key.length == 0) {
+
+        SetError(RSA_KEY_MISSING_STR, error, session, FATAL_ERROR_STATE);
+        return -1;
+    }
     ret = wc_InitRsaKey(&key, 0);
     if (ret == 0)
         ret = wc_RsaPrivateKeyDecode(session->sslServer->buffers.key.buffer,
@@ -1300,7 +1362,6 @@ static int ProcessClientKeyExchange(const byte* input, int* sslBytes,
             wc_FreeRsaKey(&key);
             return -1;
         }
-        ret = 0;  /* not in error state */
         session->sslServer->arrays->preMasterSz = SECRET_LEN;
 
         /* store for client side as well */
@@ -1561,6 +1622,8 @@ static int ProcessClientHello(const byte* input, int* sslBytes,
         if (ret == SSL_SUCCESS) {
             NamedKey* namedKey;
 
+            if (nameSz >= sizeof(name))
+                nameSz = sizeof(name) - 1;
             name[nameSz] = 0;
             LockMutex(&session->context->namedKeysMutex);
             namedKey = session->context->namedKeys;
@@ -1757,7 +1820,12 @@ static int ProcessFinished(const byte* input, int size, int* sslBytes,
          }
     }
 
-    FreeHandshakeResources(ssl);
+    /* If receiving a finished message from one side, free the resources
+     * from the other side's tracker. */
+    if (session->flags.side == WOLFSSL_SERVER_END)
+        FreeHandshakeResources(session->sslClient);
+    else
+        FreeHandshakeResources(session->sslServer);
 
     return ret;
 }
@@ -1785,6 +1853,14 @@ static int DoHandShake(const byte* input, int* sslBytes,
 
     if (*sslBytes < size) {
         SetError(HANDSHAKE_INPUT_STR, error, session, FATAL_ERROR_STATE);
+        return -1;
+    }
+
+    /* A session's arrays are released when the handshake is completed. */
+    if (session->sslServer->arrays == NULL &&
+        session->sslClient->arrays == NULL) {
+
+        SetError(NO_SECURE_RENEGOTIATION, error, session, FATAL_ERROR_STATE);
         return -1;
     }
     
@@ -1832,6 +1908,9 @@ static int DoHandShake(const byte* input, int* sslBytes,
             break;
         case certificate_verify:
             Trace(GOT_CERT_VER_STR);
+            break;
+        case certificate_status:
+            Trace(GOT_CERT_STATUS_STR);
             break;
         default:
             SetError(GOT_UNKNOWN_HANDSHAKE_STR, error, session, 0);
@@ -1886,6 +1965,39 @@ static int Decrypt(SSL* ssl, byte* output, const byte* input, word32 sz)
             break;
         #endif
 
+        #ifdef HAVE_IDEA
+        case wolfssl_idea:
+            wc_IdeaCbcDecrypt(ssl->decrypt.idea, output, input, sz);
+            break;
+        #endif
+
+        #ifdef HAVE_AESGCM
+        case wolfssl_aes_gcm:
+            if (sz >= (word32)(AEAD_EXP_IV_SZ + ssl->specs.aead_mac_size))
+            {
+                byte nonce[AEAD_NONCE_SZ];
+                XMEMCPY(nonce, ssl->keys.aead_dec_imp_IV, AEAD_IMP_IV_SZ);
+                XMEMCPY(nonce + AEAD_IMP_IV_SZ, input, AEAD_EXP_IV_SZ);
+
+                if (wc_AesGcmEncrypt(ssl->decrypt.aes,
+                            output,
+                            input + AEAD_EXP_IV_SZ,
+                            sz - AEAD_EXP_IV_SZ - ssl->specs.aead_mac_size,
+                            nonce, AEAD_NONCE_SZ,
+                            NULL, 0,
+                            NULL, 0) < 0) {
+                    Trace(BAD_DECRYPT);
+                    ret = -1;
+                }
+                ForceZero(nonce, AEAD_NONCE_SZ);
+            }
+            else {
+                Trace(BAD_DECRYPT_SIZE);
+                ret = -1;
+            }
+            break;
+         #endif
+
         default:
             Trace(BAD_DECRYPT_TYPE);
             ret = -1;
@@ -1914,7 +2026,12 @@ static const byte* DecryptMessage(SSL* ssl, const byte* input, word32 sz,
         *advance = ssl->specs.block_size;
     }
 
-    ssl->keys.padSz = ssl->specs.hash_size;
+    if (ssl->specs.cipher_type == aead) {
+        *advance = ssl->specs.aead_mac_size;
+        ssl->keys.padSz = ssl->specs.aead_mac_size;
+    }
+    else
+        ssl->keys.padSz = ssl->specs.hash_size;
 
     if (ssl->specs.cipher_type == block)
         ssl->keys.padSz += *(output + sz - ivExtra - 1) + 1;
@@ -2274,18 +2391,26 @@ static int AddToReassembly(byte from, word32 seq, const byte* sslFrame,
     PacketBuffer*  curr = *front;
     PacketBuffer*  prev = curr;
     
+    word32* reassemblyMemory = (from == WOLFSSL_SERVER_END) ?
+                  &session->cliReassemblyMemory : &session->srvReassemblyMemory;
     word32  startSeq = seq;
     word32  added;
     int     bytesLeft = sslBytes;  /* could be overlapping fragment */
 
     /* if list is empty add full frame to front */
     if (!curr) {
+        if (MaxRecoveryMemory != -1 &&
+                      (int)(*reassemblyMemory + sslBytes) > MaxRecoveryMemory) {
+            SetError(REASSEMBLY_MAX_STR, error, session, FATAL_ERROR_STATE);
+            return -1;
+        }
         add = CreateBuffer(&seq, seq + sslBytes - 1, sslFrame, &bytesLeft);
         if (add == NULL) {
             SetError(MEMORY_STR, error, session, FATAL_ERROR_STATE);
             return -1;
         }
         *front = add;
+        *reassemblyMemory += sslBytes;
         return 1;
     }
     
@@ -2296,6 +2421,11 @@ static int AddToReassembly(byte from, word32 seq, const byte* sslFrame,
         if (end >= curr->begin)
             end = curr->begin - 1;
         
+        if (MaxRecoveryMemory -1 &&
+                      (int)(*reassemblyMemory + sslBytes) > MaxRecoveryMemory) {
+            SetError(REASSEMBLY_MAX_STR, error, session, FATAL_ERROR_STATE);
+            return -1;
+        }
         add = CreateBuffer(&seq, end, sslFrame, &bytesLeft);
         if (add == NULL) {
             SetError(MEMORY_STR, error, session, FATAL_ERROR_STATE);
@@ -2303,6 +2433,7 @@ static int AddToReassembly(byte from, word32 seq, const byte* sslFrame,
         }
         add->next = curr;
         *front = add;
+        *reassemblyMemory += sslBytes;
     }
     
     /* while we have bytes left, try to find a gap to fill */
@@ -2332,6 +2463,11 @@ static int AddToReassembly(byte from, word32 seq, const byte* sslFrame,
         if (added == 0)
             continue;
         
+        if (MaxRecoveryMemory != -1 &&
+                         (int)(*reassemblyMemory + added) > MaxRecoveryMemory) {
+            SetError(REASSEMBLY_MAX_STR, error, session, FATAL_ERROR_STATE);
+            return -1;
+        }
         add = CreateBuffer(&seq, seq + added - 1, &sslFrame[seq - startSeq],
                            &bytesLeft);
         if (add == NULL) {
@@ -2340,6 +2476,7 @@ static int AddToReassembly(byte from, word32 seq, const byte* sslFrame,
         }
         add->next  = prev->next;
         prev->next = add;
+        *reassemblyMemory += added;
     }
     return 1;
 }
@@ -2373,6 +2510,9 @@ static int AdjustSequence(TcpInfo* tcpInfo, SnifferSession* session,
                                   &session->cliExpected : &session->srvExpected;
     PacketBuffer* reassemblyList = (session->flags.side == WOLFSSL_SERVER_END) ?
                         session->cliReassemblyList : session->srvReassemblyList;
+    byte  skipPartial = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                session->flags.srvSkipPartial :
+                                session->flags.cliSkipPartial;
     
     /* handle rollover of sequence */
     if (tcpInfo->sequence < seqStart)
@@ -2389,7 +2529,10 @@ static int AdjustSequence(TcpInfo* tcpInfo, SnifferSession* session,
             /* adjust to expected, remove duplicate */
             *sslFrame += overlap;
             *sslBytes -= overlap;
-                
+
+            /* The following conditional block is duplicated below. It is the
+             * same action but for a different setup case. If changing this
+             * block be sure to also update the block below. */
             if (reassemblyList) {
                 word32 newEnd = *expected + *sslBytes;
                     
@@ -2415,11 +2558,51 @@ static int AdjustSequence(TcpInfo* tcpInfo, SnifferSession* session,
     }
     else if (real > *expected) {
         Trace(OUT_OF_ORDER_STR);
-        if (*sslBytes > 0)
-            return AddToReassembly(session->flags.side, real, *sslFrame,
-                                   *sslBytes, session, error);
+        if (*sslBytes > 0) {
+            int addResult = AddToReassembly(session->flags.side, real,
+                                          *sslFrame, *sslBytes, session, error);
+            if (skipPartial) {
+                *sslBytes = 0;
+                return 0;
+            }
+            else
+                return addResult;
+        }
         else if (tcpInfo->fin)
             return AddFinCapture(session, real);
+    }
+    else if (*sslBytes > 0) {
+        if (skipPartial) {
+            AddToReassembly(session->flags.side, real,
+                                          *sslFrame, *sslBytes, session, error);
+            *expected += *sslBytes;
+            *sslBytes = 0;
+            if (tcpInfo->fin)
+                *expected += 1;
+            return 0;
+        }
+        /* The following conditional block is duplicated above. It is the
+         * same action but for a different setup case. If changing this
+         * block be sure to also update the block above. */
+        else if (reassemblyList) {
+            word32 newEnd = *expected + *sslBytes;
+
+            if (newEnd > reassemblyList->begin) {
+                Trace(OVERLAP_REASSEMBLY_BEGIN_STR);
+
+                /* remove bytes already on reassembly list */
+                *sslBytes -= newEnd - reassemblyList->begin;
+            }
+            if (newEnd > reassemblyList->end) {
+                Trace(OVERLAP_REASSEMBLY_END_STR);
+
+                /* may be past reassembly list end (could have more on list)
+                   so try to add what's past the front->end */
+                AddToReassembly(session->flags.side, reassemblyList->end +1,
+                            *sslFrame + reassemblyList->end - *expected + 1,
+                             newEnd - reassemblyList->end, session, error);
+            }
+        }
     }
     /* got expected sequence */
     *expected += *sslBytes;
@@ -2427,6 +2610,110 @@ static int AdjustSequence(TcpInfo* tcpInfo, SnifferSession* session,
         *expected += 1;
     
     return 0;
+}
+
+
+static int FindNextRecordInAssembly(SnifferSession* session,
+                                    const byte** sslFrame, int* sslBytes,
+                                    const byte** end, char* error)
+{
+    PacketBuffer**     front = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                    &session->cliReassemblyList :
+                                    &session->srvReassemblyList;
+    PacketBuffer*       curr = *front;
+    PacketBuffer*       prev = NULL;
+    byte*        skipPartial = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                    &session->flags.srvSkipPartial :
+                                    &session->flags.cliSkipPartial;
+    word32* reassemblyMemory = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                    &session->cliReassemblyMemory :
+                                    &session->srvReassemblyMemory;
+    SSL*                 ssl = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                    session->sslServer :
+                                    session->sslClient;
+    ProtocolVersion       pv = ssl->version;
+    word32*         expected = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                    &session->cliExpected :
+                                    &session->srvExpected;
+
+    while (curr != NULL) {
+        *expected = curr->end + 1;
+
+        if (curr->data[0] == application_data &&
+            curr->data[1] == pv.major &&
+            curr->data[2] == pv.minor) {
+
+            if (ssl->buffers.inputBuffer.length > 0)
+                Trace(DROPPING_PARTIAL_RECORD);
+
+            *sslBytes = curr->end - curr->begin + 1;
+            if ( (word32)*sslBytes > ssl->buffers.inputBuffer.bufferSize) {
+                if (GrowInputBuffer(ssl, *sslBytes, 0) < 0) {
+                    SetError(MEMORY_STR, error, session, FATAL_ERROR_STATE);
+                    return -1;
+                }
+            }
+
+            XMEMCPY(ssl->buffers.inputBuffer.buffer, curr->data, *sslBytes);
+
+            *front = curr->next;
+            *reassemblyMemory -= *sslBytes;
+            FreePacketBuffer(curr);
+
+            ssl->buffers.inputBuffer.length = *sslBytes;
+            *sslFrame = ssl->buffers.inputBuffer.buffer;
+            *end = *sslFrame + *sslBytes;
+            *skipPartial = 0;
+
+            return 0;
+        }
+        else if (ssl->specs.cipher_type == block) {
+            if (ssl->specs.bulk_cipher_algorithm == wolfssl_aes)
+                wc_AesSetIV(ssl->decrypt.aes,
+                            curr->data + curr->end - curr->begin
+                                       - ssl->specs.block_size + 1);
+            else if (ssl->specs.bulk_cipher_algorithm == wolfssl_triple_des)
+                wc_Des3_SetIV(ssl->decrypt.des3,
+                              curr->data + curr->end - curr->begin
+                                         - ssl->specs.block_size + 1);
+        }
+
+        Trace(DROPPING_LOST_FRAG_STR);
+        prev = curr;
+        curr = curr->next;
+        *reassemblyMemory -= (prev->end - prev->begin + 1);
+        FreePacketBuffer(prev);
+    }
+
+    *front = curr;
+
+    return 0;
+}
+
+
+static int FixSequence(TcpInfo* tcpInfo, SnifferSession* session)
+{
+    word32*   expected = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                &session->srvExpected : &session->cliExpected;
+    PacketBuffer* list = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                session->srvReassemblyList :
+                                session->cliReassemblyList;
+    byte*  skipPartial = (session->flags.side != WOLFSSL_SERVER_END) ?
+                                &session->flags.srvSkipPartial :
+                                &session->flags.cliSkipPartial;
+
+    *skipPartial = 1;
+    if (list != NULL)
+        *expected = list->begin;
+    else {
+        word32 seqStart = (session->flags.side == WOLFSSL_SERVER_END) ?
+                                session->srvSeqStart : session->cliSeqStart;
+        word32     real = tcpInfo->ackNumber - seqStart;
+
+        *expected = real;
+    }
+
+    return 1;
 }
 
 
@@ -2461,7 +2748,10 @@ static int CheckSequence(IpInfo* ipInfo, TcpInfo* tcpInfo,
                          const byte** sslFrame, char* error)
 {
     int actualLen;
-    
+    byte* ackFault = (session->flags.side == WOLFSSL_SERVER_END) ?
+                        &session->flags.cliAckFault :
+                        &session->flags.srvAckFault;
+
     /* init SEQ from server to client */
     if (tcpInfo->syn && tcpInfo->ack) {
         session->srvSeqStart = tcpInfo->sequence;
@@ -2478,10 +2768,26 @@ static int CheckSequence(IpInfo* ipInfo, TcpInfo* tcpInfo,
     
     TraceSequence(tcpInfo->sequence, *sslBytes);
     if (CheckAck(tcpInfo, session) < 0) {
-        SetError(ACK_MISSED_STR, error, session, FATAL_ERROR_STATE);
-        return -1;
+        if (!RecoveryEnabled) {
+            UpdateMissedDataSessions();
+            SetError(ACK_MISSED_STR, error, session, FATAL_ERROR_STATE);
+            return -1;
+        }
+        else {
+            SetError(ACK_MISSED_STR, error, session, 0);
+            if (*ackFault == 0) {
+                *ackFault = 1;
+                UpdateMissedDataSessions();
+            }
+            return FixSequence(tcpInfo, session);
+        }
     }
     
+    if (*ackFault) {
+        Trace(CLEAR_ACK_FAULT);
+        *ackFault = 0;
+    }
+
     return AdjustSequence(tcpInfo, session, sslBytes, sslFrame, error);    
 }
 
@@ -2495,6 +2801,9 @@ static int CheckPreRecord(IpInfo* ipInfo, TcpInfo* tcpInfo,
     word32 length;
     SSL*  ssl = ((*session)->flags.side == WOLFSSL_SERVER_END) ?
                                   (*session)->sslServer : (*session)->sslClient;
+    byte  skipPartial = ((*session)->flags.side == WOLFSSL_SERVER_END) ?
+                        (*session)->flags.srvSkipPartial :
+                        (*session)->flags.cliSkipPartial;
     /* remove SnifferSession on 2nd FIN or RST */
     if (tcpInfo->fin || tcpInfo->rst) {
         /* flag FIN and RST */
@@ -2515,13 +2824,22 @@ static int CheckPreRecord(IpInfo* ipInfo, TcpInfo* tcpInfo,
         return -1;
     }
     
+    if (skipPartial) {
+        if (FindNextRecordInAssembly(*session,
+                                     sslFrame, sslBytes, end, error) < 0) {
+            return -1;
+        }
+    }
+
     if (*sslBytes == 0) {
         Trace(NO_DATA_STR);
         return 1;
     }
     
     /* if current partial data, add to end of partial */
-    if ( (length = ssl->buffers.inputBuffer.length) ) {
+    /* if skipping, the data is alread at the end of partial */
+    if ( !skipPartial &&
+         (length = ssl->buffers.inputBuffer.length) ) {
         Trace(PARTIAL_ADD_STR);
         
         if ( (*sslBytes + length) > ssl->buffers.inputBuffer.bufferSize) {
@@ -2577,35 +2895,41 @@ static int HaveMoreInput(SnifferSession* session, const byte** sslFrame,
     word32*        length = (session->flags.side == WOLFSSL_SERVER_END) ?
                                &session->sslServer->buffers.inputBuffer.length :
                                &session->sslClient->buffers.inputBuffer.length;
-    byte*          myBuffer = (session->flags.side == WOLFSSL_SERVER_END) ?
-                                session->sslServer->buffers.inputBuffer.buffer :
-                                session->sslClient->buffers.inputBuffer.buffer;
-    word32       bufferSize = (session->flags.side == WOLFSSL_SERVER_END) ?
-                            session->sslServer->buffers.inputBuffer.bufferSize :
-                            session->sslClient->buffers.inputBuffer.bufferSize;
+    byte**         myBuffer = (session->flags.side == WOLFSSL_SERVER_END) ?
+                               &session->sslServer->buffers.inputBuffer.buffer :
+                               &session->sslClient->buffers.inputBuffer.buffer;
+    word32*       bufferSize = (session->flags.side == WOLFSSL_SERVER_END) ?
+                           &session->sslServer->buffers.inputBuffer.bufferSize :
+                           &session->sslClient->buffers.inputBuffer.bufferSize;
     SSL*               ssl  = (session->flags.side == WOLFSSL_SERVER_END) ?
                             session->sslServer : session->sslClient;
+    word32*     reassemblyMemory = (session->flags.side == WOLFSSL_SERVER_END) ?
+                  &session->cliReassemblyMemory : &session->srvReassemblyMemory;
     
     while (*front && ((*front)->begin == *expected) ) {
-        word32 room = bufferSize - *length;
+        word32 room = *bufferSize - *length;
         word32 packetLen = (*front)->end - (*front)->begin + 1;
 
-        if (packetLen > room && bufferSize < MAX_INPUT_SZ) {
+        if (packetLen > room && *bufferSize < MAX_INPUT_SZ) {
             if (GrowInputBuffer(ssl, packetLen, *length) < 0) {
                 SetError(MEMORY_STR, error, session, FATAL_ERROR_STATE);
                 return 0;
             }
+            room = *bufferSize - *length;   /* bufferSize is now bigger */
         }
         
         if (packetLen <= room) {
             PacketBuffer* del = *front;
+            byte*         buf = *myBuffer;
             
-            XMEMCPY(&myBuffer[*length], (*front)->data, packetLen);
+            XMEMCPY(&buf[*length], (*front)->data, packetLen);
             *length   += packetLen;
             *expected += packetLen;
             
             /* remove used packet */
             *front = (*front)->next;
+
+            *reassemblyMemory -= packetLen;
             FreePacketBuffer(del);
             
             moreInput = 1;
@@ -2614,9 +2938,9 @@ static int HaveMoreInput(SnifferSession* session, const byte** sslFrame,
             break;
     }
     if (moreInput) {
-        *sslFrame = myBuffer;
+        *sslFrame = *myBuffer;
         *sslBytes = *length;
-        *end      = myBuffer + *length;
+        *end      = *myBuffer + *length;
     }
     return moreInput;
 }
@@ -2626,7 +2950,8 @@ static int HaveMoreInput(SnifferSession* session, const byte** sslFrame,
 /* Process Message(s) from sslFrame */
 /* return Number of bytes on success, 0 for no data yet, and -1 on error */
 static int ProcessMessage(const byte* sslFrame, SnifferSession* session,
-                          int sslBytes, byte* data, const byte* end,char* error)
+                          int sslBytes, byte** data, const byte* end,
+                          char* error)
 {
     const byte*       sslBegin = sslFrame;
     const byte*       recordEnd;   /* end of record indicator */
@@ -2752,8 +3077,20 @@ doPart:
                     ret = ssl->buffers.clearOutputBuffer.length;
                     TraceGotData(ret);
                     if (ret) {  /* may be blank message */
-                        XMEMCPY(&data[decoded],
-                               ssl->buffers.clearOutputBuffer.buffer, ret);
+                        byte* tmpData;  /* don't leak on realloc free */
+                        /* add an extra byte at end of allocation in case user
+                         * wants to null terminate plaintext */
+                        tmpData = (byte*)realloc(*data, decoded + ret + 1);
+                        if (tmpData == NULL) {
+                            free(*data);
+                            *data = NULL;
+                            SetError(MEMORY_STR, error, session,
+                                     FATAL_ERROR_STATE);
+                            return -1;
+                        }
+                        *data = tmpData;
+                        XMEMCPY(*data + decoded,
+                                ssl->buffers.clearOutputBuffer.buffer, ret);
                         TraceAddedData(ret, decoded);
                         decoded += ret;
                         ssl->buffers.clearOutputBuffer.length = 0;
@@ -2855,7 +3192,7 @@ static int RemoveFatalSession(IpInfo* ipInfo, TcpInfo* tcpInfo,
 
 /* Passes in an IP/TCP packet for decoding (ethernet/localhost frame) removed */
 /* returns Number of bytes on success, 0 for no data yet, and -1 on error */
-int ssl_DecodePacket(const byte* packet, int length, byte* data, char* error)
+int ssl_DecodePacket(const byte* packet, int length, byte** data, char* error)
 {
     TcpInfo           tcpInfo;
     IpInfo            ipInfo;
@@ -2892,6 +3229,21 @@ int ssl_DecodePacket(const byte* packet, int length, byte* data, char* error)
 }
 
 
+/* Deallocator for the decoded data buffer. */
+/* returns 0 on success, -1 on error */
+int ssl_FreeDecodeBuffer(byte** data, char* error)
+{
+    (void)error;
+
+    if (data != NULL) {
+        free(*data);
+        *data = NULL;
+    }
+
+    return 0;
+}
+
+
 /* Enables (if traceFile)/ Disables debug tracing */
 /* returns 0 on success, -1 on error */
 int ssl_Trace(const char* traceFile, char* error)
@@ -2911,6 +3263,64 @@ int ssl_Trace(const char* traceFile, char* error)
 }
 
 
+/* Enables/Disables Recovery of missed data if later packets allow
+ * maxMemory is number of bytes to use for reassembly buffering per session,
+ * -1 means unlimited
+ * returns 0 on success, -1 on error */
+int ssl_EnableRecovery(int onOff, int maxMemory, char* error)
+{
+    (void)error;
+
+    RecoveryEnabled = onOff;
+    if (onOff)
+        MaxRecoveryMemory = maxMemory;
+
+    return 0;
+}
+
+
+
+int ssl_GetSessionStats(unsigned int* active,     unsigned int* total,
+                        unsigned int* peak,       unsigned int* maxSessions,
+                        unsigned int* missedData, unsigned int* reassemblyMem,
+                        char* error)
+{
+    int ret;
+
+    if (missedData) {
+        LockMutex(&RecoveryMutex);
+        *missedData = MissedDataSessions;
+        UnLockMutex(&RecoveryMutex);
+    }
+
+    if (reassemblyMem) {
+        SnifferSession* session;
+        int i;
+
+        *reassemblyMem = 0;
+        LockMutex(&SessionMutex);
+        for (i = 0; i < HASH_SIZE; i++) {
+            session = SessionTable[i];
+            while (session) {
+                *reassemblyMem += session->cliReassemblyMemory;
+                *reassemblyMem += session->srvReassemblyMemory;
+                session = session->next;
+            }
+        }
+        UnLockMutex(&SessionMutex);
+    }
+
+    ret = wolfSSL_get_session_stats(active, total, peak, maxSessions);
+
+    if (ret == SSL_SUCCESS)
+        return 0;
+    else {
+        SetError(BAD_SESSION_STATS, error, NULL, 0);
+        return -1;
+    }
+}
+
 
 
 #endif /* WOLFSSL_SNIFFER */
+#endif /* WOLFCRYPT_ONLY */

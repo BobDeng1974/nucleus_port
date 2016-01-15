@@ -1,14 +1,23 @@
 /* md5.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 #ifdef HAVE_CONFIG_H
@@ -18,6 +27,10 @@
 #include <wolfssl/wolfcrypt/settings.h>
 
 #if !defined(NO_MD5)
+
+#if defined(WOLFSSL_TI_HASH)
+    /* #include <wolfcrypt/src/port/ti/ti-hash.c> included by wc_port.c */
+#else
 
 #ifdef WOLFSSL_PIC32MZ_HASH
 #define wc_InitMd5   wc_InitMd5_sw
@@ -36,7 +49,7 @@
 
 #ifdef FREESCALE_MMCAU
     #include "cau_api.h"
-    #define XTRANSFORM(S,B)  cau_md5_hash_n((B), 1, (unsigned char*)(S)->digest)
+    #define XTRANSFORM(S,B)  Transform((S), (B))
 #else
     #define XTRANSFORM(S,B)  Transform((S))
 #endif
@@ -157,15 +170,15 @@
 
 #else /* CTaoCrypt software implementation */
 
-#ifndef min
+#ifndef WOLFSSL_HAVE_MIN
+#define WOLFSSL_HAVE_MIN
 
     static INLINE word32 min(word32 a, word32 b)
     {
         return a > b ? b : a;
     }
 
-#endif /* min */
-
+#endif /* WOLFSSL_HAVE_MIN */
 
 void wc_InitMd5(Md5* md5)
 {
@@ -178,6 +191,18 @@ void wc_InitMd5(Md5* md5)
     md5->loLen   = 0;
     md5->hiLen   = 0;
 }
+
+#ifdef FREESCALE_MMCAU
+static int Transform(Md5* md5, byte* data)
+{
+    int ret = wolfSSL_CryptHwMutexLock();
+    if(ret == 0) {
+        cau_md5_hash_n(data, 1, (unsigned char*)md5->digest);
+        wolfSSL_CryptHwMutexUnLock();
+    }
+    return ret;
+}
+#endif /* FREESCALE_MMCAU */
 
 #ifndef FREESCALE_MMCAU
 
@@ -378,5 +403,7 @@ int wc_Md5Hash(const byte* data, word32 len, byte* hash)
 
     return 0;
 }
+
+#endif /* WOLFSSL_TI_HASH */
 
 #endif /* NO_MD5 */

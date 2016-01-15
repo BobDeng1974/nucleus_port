@@ -1,14 +1,23 @@
 /* hmac.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
@@ -96,10 +105,10 @@ int wc_HKDF(int type, const byte* inKey, word32 inKeySz,
 
 
 #ifdef HAVE_CAVIUM
-    static void HmacCaviumFinal(Hmac* hmac, byte* hash);
-    static void HmacCaviumUpdate(Hmac* hmac, const byte* msg, word32 length);
-    static void HmacCaviumSetKey(Hmac* hmac, int type, const byte* key,
-                                 word32 length);
+    static int HmacCaviumFinal(Hmac* hmac, byte* hash);
+    static int HmacCaviumUpdate(Hmac* hmac, const byte* msg, word32 length);
+    static int HmacCaviumSetKey(Hmac* hmac, int type, const byte* key,
+                                word32 length);
 #endif
 
 static int InitHmac(Hmac* hmac, int type)
@@ -125,31 +134,31 @@ static int InitHmac(Hmac* hmac, int type)
             ret = wc_InitSha(&hmac->hash.sha);
         break;
         #endif
-        
+
         #ifndef NO_SHA256
         case SHA256:
             ret = wc_InitSha256(&hmac->hash.sha256);
         break;
         #endif
-        
+
         #ifdef WOLFSSL_SHA384
         case SHA384:
             ret = wc_InitSha384(&hmac->hash.sha384);
         break;
         #endif
-        
+
         #ifdef WOLFSSL_SHA512
         case SHA512:
             ret = wc_InitSha512(&hmac->hash.sha512);
         break;
         #endif
-        
-        #ifdef HAVE_BLAKE2 
+
+        #ifdef HAVE_BLAKE2
         case BLAKE2B_ID:
             ret = wc_InitBlake2b(&hmac->hash.blake2b, BLAKE2B_256);
         break;
         #endif
-        
+
         default:
             return BAD_FUNC_ARG;
     }
@@ -278,7 +287,7 @@ int wc_HmacSetKey(Hmac* hmac, int type, const byte* key, word32 length)
         break;
         #endif
 
-        #ifdef HAVE_BLAKE2 
+        #ifdef HAVE_BLAKE2
         case BLAKE2B_ID:
         {
             hmac_block_size = BLAKE2B_BLOCKBYTES;
@@ -358,7 +367,7 @@ static int HmacKeyInnerHash(Hmac* hmac)
         break;
         #endif
 
-        #ifdef HAVE_BLAKE2 
+        #ifdef HAVE_BLAKE2
         case BLAKE2B_ID:
             ret = wc_Blake2bUpdate(&hmac->hash.blake2b,
                                          (byte*) hmac->ipad,BLAKE2B_BLOCKBYTES);
@@ -429,7 +438,7 @@ int wc_HmacUpdate(Hmac* hmac, const byte* msg, word32 length)
         break;
         #endif
 
-        #ifdef HAVE_BLAKE2 
+        #ifdef HAVE_BLAKE2
         case BLAKE2B_ID:
             ret = wc_Blake2bUpdate(&hmac->hash.blake2b, msg, length);
             if (ret != 0)
@@ -561,7 +570,7 @@ int wc_HmacFinal(Hmac* hmac, byte* hash)
         break;
         #endif
 
-        #ifdef HAVE_BLAKE2 
+        #ifdef HAVE_BLAKE2
         case BLAKE2B_ID:
         {
             ret = wc_Blake2bFinal(&hmac->hash.blake2b, (byte*) hmac->innerHash,
@@ -613,7 +622,7 @@ int wc_HmacInitCavium(Hmac* hmac, int devId)
     hmac->devId   = devId;
     hmac->magic   = WOLFSSL_HMAC_CAVIUM_MAGIC;
     hmac->data    = NULL;        /* buffered input data */
-   
+
     hmac->innerHashKeyed = 0;
 
     return 0;
@@ -633,7 +642,7 @@ void wc_HmacFreeCavium(Hmac* hmac)
 }
 
 
-static void HmacCaviumFinal(Hmac* hmac, byte* hash)
+static int HmacCaviumFinal(Hmac* hmac, byte* hash)
 {
     word32 requestId;
 
@@ -641,12 +650,15 @@ static void HmacCaviumFinal(Hmac* hmac, byte* hash)
                 (byte*)hmac->ipad, hmac->dataLen, hmac->data, hash, &requestId,
                 hmac->devId) != 0) {
         WOLFSSL_MSG("Cavium Hmac failed");
-    } 
+        return -1;
+    }
     hmac->innerHashKeyed = 0;  /* tell update to start over if used again */
+
+    return 0;
 }
 
 
-static void HmacCaviumUpdate(Hmac* hmac, const byte* msg, word32 length)
+static int HmacCaviumUpdate(Hmac* hmac, const byte* msg, word32 length)
 {
     word16 add = (word16)length;
     word32 total;
@@ -654,7 +666,7 @@ static void HmacCaviumUpdate(Hmac* hmac, const byte* msg, word32 length)
 
     if (length > WOLFSSL_MAX_16BIT) {
         WOLFSSL_MSG("Too big msg for cavium hmac");
-        return;
+        return -1;
     }
 
     if (hmac->innerHashKeyed == 0) {  /* starting new */
@@ -665,26 +677,28 @@ static void HmacCaviumUpdate(Hmac* hmac, const byte* msg, word32 length)
     total = add + hmac->dataLen;
     if (total > WOLFSSL_MAX_16BIT) {
         WOLFSSL_MSG("Too big msg for cavium hmac");
-        return;
+        return -1;
     }
 
     tmp = XMALLOC(hmac->dataLen + add, NULL,DYNAMIC_TYPE_CAVIUM_TMP);
     if (tmp == NULL) {
         WOLFSSL_MSG("Out of memory for cavium update");
-        return;
+        return -1;
     }
     if (hmac->dataLen)
         XMEMCPY(tmp, hmac->data,  hmac->dataLen);
     XMEMCPY(tmp + hmac->dataLen, msg, add);
-        
+
     hmac->dataLen += add;
     XFREE(hmac->data, NULL, DYNAMIC_TYPE_CAVIUM_TMP);
     hmac->data = tmp;
+
+    return 0;
 }
 
 
-static void HmacCaviumSetKey(Hmac* hmac, int type, const byte* key,
-                             word32 length)
+static int HmacCaviumSetKey(Hmac* hmac, int type, const byte* key,
+                            word32 length)
 {
     hmac->macType = (byte)type;
     if (type == MD5)
@@ -702,6 +716,8 @@ static void HmacCaviumSetKey(Hmac* hmac, int type, const byte* key,
     hmac->keyLen = (word16)length;
     /* store key in ipad */
     XMEMCPY(hmac->ipad, key, length);
+
+    return 0;
 }
 
 #endif /* HAVE_CAVIUM */
@@ -713,14 +729,15 @@ int wolfSSL_GetHmacMaxSize(void)
 
 #ifdef HAVE_HKDF
 
-#ifndef min
+#ifndef WOLFSSL_HAVE_MIN
+#define WOLFSSL_HAVE_MIN
 
     static INLINE word32 min(word32 a, word32 b)
     {
         return a > b ? b : a;
     }
 
-#endif /* min */
+#endif /* WOLFSSL_HAVE_MIN */
 
 
 static INLINE int GetHashSizeByType(int type)
@@ -733,42 +750,35 @@ static INLINE int GetHashSizeByType(int type)
         #ifndef NO_MD5
         case MD5:
             return MD5_DIGEST_SIZE;
-        break;
         #endif
 
         #ifndef NO_SHA
         case SHA:
             return SHA_DIGEST_SIZE;
-        break;
         #endif
-        
+
         #ifndef NO_SHA256
         case SHA256:
             return SHA256_DIGEST_SIZE;
-        break;
         #endif
-        
+
         #ifdef WOLFSSL_SHA384
         case SHA384:
             return SHA384_DIGEST_SIZE;
-        break;
         #endif
-        
+
         #ifdef WOLFSSL_SHA512
         case SHA512:
             return SHA512_DIGEST_SIZE;
-        break;
         #endif
-        
-        #ifdef HAVE_BLAKE2 
+
+        #ifdef HAVE_BLAKE2
         case BLAKE2B_ID:
             return BLAKE2B_OUTBYTES;
-        break;
         #endif
-        
+
         default:
             return BAD_FUNC_ARG;
-        break;
     }
 }
 
@@ -814,7 +824,7 @@ int wc_HKDF(int type, const byte* inKey, word32 inKeySz,
         localSalt = tmp;
         saltSz    = hashSz;
     }
-    
+
     do {
     ret = wc_HmacSetKey(&myHmac, type, localSalt, saltSz);
     if (ret != 0)
@@ -866,4 +876,3 @@ int wc_HKDF(int type, const byte* inKey, word32 inKeySz,
 
 #endif /* HAVE_FIPS */
 #endif /* NO_HMAC */
-

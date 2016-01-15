@@ -1,23 +1,30 @@
 /* des3.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
-
-
-#ifndef NO_DES3
 
 #ifndef WOLF_CRYPT_DES3_H
 #define WOLF_CRYPT_DES3_H
 
-
 #include <wolfssl/wolfcrypt/types.h>
+
+#ifndef NO_DES3
 
 #ifdef HAVE_FIPS
 /* included for fips @wc_fips */
@@ -76,21 +83,23 @@ typedef struct Des3 {
 } Des3;
 #endif /* HAVE_FIPS */
 
-WOLFSSL_API int  wc_Des_SetKey(Des* des, const byte* key, const byte* iv, int dir);
+WOLFSSL_API int  wc_Des_SetKey(Des* des, const byte* key,
+                               const byte* iv, int dir);
 WOLFSSL_API void wc_Des_SetIV(Des* des, const byte* iv);
-WOLFSSL_API int  wc_Des_CbcEncrypt(Des* des, byte* out, const byte* in, word32 sz);
-WOLFSSL_API int  wc_Des_CbcDecrypt(Des* des, byte* out, const byte* in, word32 sz);
-WOLFSSL_API int  wc_Des_EcbEncrypt(Des* des, byte* out, const byte* in, word32 sz);
-WOLFSSL_API int  wc_Des_CbcDecryptWithKey(byte* out, const byte* in, word32 sz,
-                                               const byte* key, const byte* iv);
+WOLFSSL_API int  wc_Des_CbcEncrypt(Des* des, byte* out,
+                                   const byte* in, word32 sz);
+WOLFSSL_API int  wc_Des_CbcDecrypt(Des* des, byte* out,
+                                   const byte* in, word32 sz);
+WOLFSSL_API int  wc_Des_EcbEncrypt(Des* des, byte* out,
+                                   const byte* in, word32 sz);
 
-WOLFSSL_API int  wc_Des3_SetKey(Des3* des, const byte* key, const byte* iv,int dir);
+WOLFSSL_API int  wc_Des3_SetKey(Des3* des, const byte* key,
+                                const byte* iv,int dir);
 WOLFSSL_API int  wc_Des3_SetIV(Des3* des, const byte* iv);
-WOLFSSL_API int  wc_Des3_CbcEncrypt(Des3* des, byte* out, const byte* in,word32 sz);
-WOLFSSL_API int  wc_Des3_CbcDecrypt(Des3* des, byte* out, const byte* in,word32 sz);
-WOLFSSL_API int  wc_Des3_CbcDecryptWithKey(byte* out, const byte* in, word32 sz,
-                                               const byte* key, const byte* iv);
-
+WOLFSSL_API int  wc_Des3_CbcEncrypt(Des3* des, byte* out,
+                                    const byte* in,word32 sz);
+WOLFSSL_API int  wc_Des3_CbcDecrypt(Des3* des, byte* out,
+                                    const byte* in,word32 sz);
 
 #ifdef HAVE_CAVIUM
     WOLFSSL_API int  wc_Des3_InitCavium(Des3*, int);
@@ -102,5 +111,5 @@ WOLFSSL_API int  wc_Des3_CbcDecryptWithKey(byte* out, const byte* in, word32 sz,
 #endif
 
 #endif /* NO_DES3 */
-#endif /* CTAO_CRYPT_DES3_H */
+#endif /* WOLF_CRYPT_DES3_H */
 

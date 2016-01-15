@@ -1,14 +1,23 @@
 /* dh.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
@@ -30,14 +39,15 @@
 #endif
 
 
-#ifndef min
+#ifndef WOLFSSL_HAVE_MIN
+#define WOLFSSL_HAVE_MIN
 
     static INLINE word32 min(word32 a, word32 b)
     {
         return a > b ? b : a;
     }
 
-#endif /* min */
+#endif /* WOLFSSL_HAVE_MIN */
 
 
 void wc_InitDhKey(DhKey* key)
@@ -73,7 +83,7 @@ static word32 DiscreteLogWorkFactor(word32 n)
 }
 
 
-static int GeneratePrivate(DhKey* key, RNG* rng, byte* priv, word32* privSz)
+static int GeneratePrivate(DhKey* key, WC_RNG* rng, byte* priv, word32* privSz)
 {
     int ret;
     word32 sz = mp_unsigned_bin_size(&key->p);
@@ -122,7 +132,7 @@ static int GeneratePublic(DhKey* key, const byte* priv, word32 privSz,
 }
 
 
-int wc_DhGenerateKeyPair(DhKey* key, RNG* rng, byte* priv, word32* privSz,
+int wc_DhGenerateKeyPair(DhKey* key, WC_RNG* rng, byte* priv, word32* privSz,
                       byte* pub, word32* pubSz)
 {
     int ret = GeneratePrivate(key, rng, priv, privSz);
@@ -162,6 +172,43 @@ int wc_DhAgree(DhKey* key, byte* agree, word32* agreeSz, const byte* priv,
     mp_clear(&x);
 
     return ret;
+}
+
+
+/* not in asn anymore since no actual asn types used */
+int wc_DhSetKey(DhKey* key, const byte* p, word32 pSz, const byte* g,
+                word32 gSz)
+{
+    if (key == NULL || p == NULL || g == NULL || pSz == 0 || gSz == 0)
+        return BAD_FUNC_ARG;
+
+    /* may have leading 0 */
+    if (p[0] == 0) {
+        pSz--; p++;
+    }
+
+    if (g[0] == 0) {
+        gSz--; g++;
+    }
+
+    if (mp_init(&key->p) != MP_OKAY)
+        return MP_INIT_E;
+    if (mp_read_unsigned_bin(&key->p, p, pSz) != 0) {
+        mp_clear(&key->p);
+        return ASN_DH_KEY_E;
+    }
+
+    if (mp_init(&key->g) != MP_OKAY) {
+        mp_clear(&key->p);
+        return MP_INIT_E;
+    }
+    if (mp_read_unsigned_bin(&key->g, g, gSz) != 0) {
+        mp_clear(&key->g);
+        mp_clear(&key->p);
+        return ASN_DH_KEY_E;
+    }
+
+    return 0;
 }
 
 

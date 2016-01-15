@@ -1,14 +1,23 @@
 /* keys.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 /* Name change compatibility layer no longer needs to be included here */
 
@@ -18,11 +27,17 @@
 
 #include <wolfssl/wolfcrypt/settings.h>
 
+#ifndef WOLFCRYPT_ONLY
+
 #include <wolfssl/internal.h>
 #include <wolfssl/error-ssl.h>
 #if defined(SHOW_SECRETS) || defined(CHACHA_AEAD_TEST)
     #ifdef FREESCALE_MQX
-        #include <fio.h>
+        #if MQX_USE_IO_OLD
+            #include <fio.h>
+        #else
+            #include <nio.h>
+        #endif
     #else
         #include <stdio.h>
     #endif
@@ -1742,6 +1757,23 @@ int SetCipherSpecs(WOLFSSL* ssl)
         break;
 #endif
 
+#ifdef BUILD_SSL_RSA_WITH_IDEA_CBC_SHA
+        case SSL_RSA_WITH_IDEA_CBC_SHA :
+            ssl->specs.bulk_cipher_algorithm = wolfssl_idea;
+            ssl->specs.cipher_type           = block;
+            ssl->specs.mac_algorithm         = sha_mac;
+            ssl->specs.kea                   = rsa_kea;
+            ssl->specs.sig_algo              = rsa_sa_algo;
+            ssl->specs.hash_size             = SHA_DIGEST_SIZE;
+            ssl->specs.pad_size              = PAD_SHA;
+            ssl->specs.static_ecdh           = 0;
+            ssl->specs.key_size              = IDEA_KEY_SIZE;
+            ssl->specs.block_size            = IDEA_BLOCK_SIZE;
+            ssl->specs.iv_size               = IDEA_IV_SIZE;
+            
+            break;
+#endif
+
     default:
         WOLFSSL_MSG("Unsupported cipher suite, SetCipherSpecs");
         return UNSUPPORTED_SUITE;
@@ -1770,7 +1802,7 @@ int SetCipherSpecs(WOLFSSL* ssl)
 enum KeyStuff {
     MASTER_ROUNDS = 3,
     PREFIX        = 3,     /* up to three letters for master prefix */
-    KEY_PREFIX    = 7      /* up to 7 prefix letters for key rounds */
+    KEY_PREFIX    = 9      /* up to 9 prefix letters for key rounds */
 
 
 };
@@ -1801,6 +1833,12 @@ static int SetPrefix(byte* sha_input, int idx)
     case 6:
         XMEMCPY(sha_input, "GGGGGGG", 7);
         break;
+    case 7:
+        XMEMCPY(sha_input, "HHHHHHHH", 8);
+        break;
+    case 8:
+        XMEMCPY(sha_input, "IIIIIIIII", 9);
+        break;
     default:
         WOLFSSL_MSG("Set Prefix error, bad input");
         return 0; 
@@ -1811,7 +1849,7 @@ static int SetPrefix(byte* sha_input, int idx)
 
 
 static int SetKeys(Ciphers* enc, Ciphers* dec, Keys* keys, CipherSpecs* specs,
-                   byte side, void* heap, int devId)
+                   int side, void* heap, int devId)
 {
 #ifdef BUILD_ARC4
     word32 sz = specs->key_size;
@@ -1827,13 +1865,13 @@ static int SetKeys(Ciphers* enc, Ciphers* dec, Keys* keys, CipherSpecs* specs,
 #ifdef HAVE_CAVIUM
         if (devId != NO_CAVIUM_DEVICE) {
             if (enc) {
-                if (Arc4InitCavium(enc->arc4, devId) != 0) {
+                if (wc_Arc4InitCavium(enc->arc4, devId) != 0) {
                     WOLFSSL_MSG("Arc4InitCavium failed in SetKeys");
                     return CAVIUM_INIT_E;
                 }
             }
             if (dec) {
-                if (Arc4InitCavium(dec->arc4, devId) != 0) {
+                if (wc_Arc4InitCavium(dec->arc4, devId) != 0) {
                     WOLFSSL_MSG("Arc4InitCavium failed in SetKeys");
                     return CAVIUM_INIT_E;
                 }
@@ -2016,13 +2054,13 @@ static int SetKeys(Ciphers* enc, Ciphers* dec, Keys* keys, CipherSpecs* specs,
 #ifdef HAVE_CAVIUM
         if (devId != NO_CAVIUM_DEVICE) {
             if (enc) {
-                if (Des3_InitCavium(enc->des3, devId) != 0) {
+                if (wc_Des3_InitCavium(enc->des3, devId) != 0) {
                     WOLFSSL_MSG("Des3_InitCavium failed in SetKeys");
                     return CAVIUM_INIT_E;
                 }
             }
             if (dec) {
-                if (Des3_InitCavium(dec->des3, devId) != 0) {
+                if (wc_Des3_InitCavium(dec->des3, devId) != 0) {
                     WOLFSSL_MSG("Des3_InitCavium failed in SetKeys");
                     return CAVIUM_INIT_E;
                 }
@@ -2264,6 +2302,55 @@ static int SetKeys(Ciphers* enc, Ciphers* dec, Keys* keys, CipherSpecs* specs,
     }
 #endif
 
+#ifdef HAVE_IDEA
+    if (specs->bulk_cipher_algorithm == wolfssl_idea) {
+        int ideaRet;
+
+        if (enc && enc->idea == NULL)
+            enc->idea = (Idea*)XMALLOC(sizeof(Idea), heap, DYNAMIC_TYPE_CIPHER);
+        if (enc && enc->idea == NULL)
+            return MEMORY_E;
+
+        if (dec && dec->idea == NULL)
+            dec->idea = (Idea*)XMALLOC(sizeof(Idea), heap, DYNAMIC_TYPE_CIPHER);
+        if (dec && dec->idea == NULL)
+            return MEMORY_E;
+
+        if (side == WOLFSSL_CLIENT_END) {
+            if (enc) {
+                ideaRet = wc_IdeaSetKey(enc->idea, keys->client_write_key,
+                                        specs->key_size, keys->client_write_IV,
+                                        IDEA_ENCRYPTION);
+                if (ideaRet != 0) return ideaRet;
+            }
+            if (dec) {
+                ideaRet = wc_IdeaSetKey(dec->idea, keys->server_write_key,
+                                        specs->key_size, keys->server_write_IV,
+                                        IDEA_DECRYPTION);
+                if (ideaRet != 0) return ideaRet;
+            }
+        }
+        else {
+            if (enc) {
+                ideaRet = wc_IdeaSetKey(enc->idea, keys->server_write_key,
+                                        specs->key_size, keys->server_write_IV,
+                                        IDEA_ENCRYPTION);
+                if (ideaRet != 0) return ideaRet;
+            }
+            if (dec) {
+                ideaRet = wc_IdeaSetKey(dec->idea, keys->client_write_key,
+                                        specs->key_size, keys->client_write_IV,
+                                        IDEA_DECRYPTION);
+                if (ideaRet != 0) return ideaRet;
+            }
+        }
+        if (enc)
+            enc->setup = 1;
+        if (dec)
+            dec->setup = 1;
+    }
+#endif
+
 #ifdef HAVE_NULL_CIPHER
     if (specs->bulk_cipher_algorithm == wolfssl_cipher_null) {
         if (enc)
@@ -2357,7 +2444,7 @@ int SetKeysSide(WOLFSSL* ssl, enum encrypt_side side)
     }
 
 #ifdef HAVE_ONE_TIME_AUTH
-    if (!ssl->auth.setup) {
+    if (!ssl->auth.setup && ssl->specs.bulk_cipher_algorithm == wolfssl_chacha){
         ret = SetAuthKeys(&ssl->auth, keys, &ssl->specs, ssl->heap, devId);
         if (ret != 0)
            return ret;
@@ -2398,11 +2485,33 @@ int SetKeysSide(WOLFSSL* ssl, enum encrypt_side side)
                     /* Initialize the AES-GCM/CCM explicit IV to a zero. */
                     XMEMCPY(ssl->keys.aead_exp_IV, keys->aead_exp_IV,
                             AEAD_EXP_IV_SZ);
+
+                    /* Initialize encrypt implicit IV by encrypt side */
+                    if (ssl->options.side == WOLFSSL_CLIENT_END) {
+                        XMEMCPY(ssl->keys.aead_enc_imp_IV,
+                                keys->client_write_IV, AEAD_IMP_IV_SZ);
+                    } else {
+                        XMEMCPY(ssl->keys.aead_enc_imp_IV,
+                                keys->server_write_IV, AEAD_IMP_IV_SZ);
+                    }
                 }
             #endif
         }
-        if (wc_decrypt)
+        if (wc_decrypt) {
             ssl->keys.peer_sequence_number = keys->peer_sequence_number;
+            #ifdef HAVE_AEAD
+                if (ssl->specs.cipher_type == aead) {
+                    /* Initialize decrypt implicit IV by decrypt side */
+                    if (ssl->options.side == WOLFSSL_SERVER_END) {
+                        XMEMCPY(ssl->keys.aead_dec_imp_IV,
+                                keys->client_write_IV, AEAD_IMP_IV_SZ);
+                    } else {
+                        XMEMCPY(ssl->keys.aead_dec_imp_IV,
+                                keys->server_write_IV, AEAD_IMP_IV_SZ);
+                    }
+                }
+            #endif
+        }
         ssl->secure_renegotiation->cache_status++;
     }
 #endif /* HAVE_SECURE_RENEGOTIATION */
@@ -2599,9 +2708,9 @@ static int MakeSslMasterSecret(WOLFSSL* ssl)
         printf("\n");
     }
 #endif
-    
+
 #ifdef WOLFSSL_SMALL_STACK
-    shaOutput = (byte*)XMALLOC(SHA_DIGEST_SIZE, 
+    shaOutput = (byte*)XMALLOC(SHA_DIGEST_SIZE,
                                             NULL, DYNAMIC_TYPE_TMP_BUFFER);
     md5Input  = (byte*)XMALLOC(ENCRYPT_LEN + SHA_DIGEST_SIZE,
                                             NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -2677,7 +2786,7 @@ static int MakeSslMasterSecret(WOLFSSL* ssl)
     XFREE(md5,       NULL, DYNAMIC_TYPE_TMP_BUFFER);
     XFREE(sha,       NULL, DYNAMIC_TYPE_TMP_BUFFER);
 #endif
-    
+
     if (ret == 0)
         ret = CleanPreMaster(ssl);
     else
@@ -2691,6 +2800,48 @@ static int MakeSslMasterSecret(WOLFSSL* ssl)
 /* Master wrapper, doesn't use SSL stack space in TLS mode */
 int MakeMasterSecret(WOLFSSL* ssl)
 {
+    /* append secret to premaster : premaster | SerSi | CliSi */
+#ifdef HAVE_QSH
+    word32 offset = 0;
+
+    if (ssl->peerQSHKeyPresent) {
+        offset += ssl->arrays->preMasterSz;
+        ssl->arrays->preMasterSz += ssl->QSH_secret->CliSi->length +
+                                                 ssl->QSH_secret->SerSi->length;
+        /* test and set flag if QSH has been used */
+        if (ssl->QSH_secret->CliSi->length > 0 ||
+                ssl->QSH_secret->SerSi->length > 0)
+            ssl->isQSH = 1;
+
+        /* append secrets to the premaster */
+        if (ssl->QSH_secret->SerSi != NULL) {
+            XMEMCPY(ssl->arrays->preMasterSecret + offset,
+                ssl->QSH_secret->SerSi->buffer, ssl->QSH_secret->SerSi->length);
+        }
+        offset += ssl->QSH_secret->SerSi->length;
+        if (ssl->QSH_secret->CliSi != NULL) {
+            XMEMCPY(ssl->arrays->preMasterSecret + offset,
+                ssl->QSH_secret->CliSi->buffer, ssl->QSH_secret->CliSi->length);
+        }
+
+        /* show secret SerSi and CliSi */
+        #ifdef SHOW_SECRETS
+            word32 j;
+            printf("QSH generated secret material\n");
+            printf("SerSi        : ");
+            for (j = 0; j < ssl->QSH_secret->SerSi->length; j++) {
+                printf("%02x", ssl->QSH_secret->SerSi->buffer[j]);
+            }
+            printf("\n");
+            printf("CliSi        : ");
+            for (j = 0; j < ssl->QSH_secret->CliSi->length; j++) {
+                printf("%02x", ssl->QSH_secret->CliSi->buffer[j]);
+            }
+            printf("\n");
+        #endif
+    }
+#endif
+
 #ifdef NO_OLD_TLS
     return MakeTlsMasterSecret(ssl);
 #elif !defined(NO_TLS)
@@ -2701,4 +2852,6 @@ int MakeMasterSecret(WOLFSSL* ssl)
     return MakeSslMasterSecret(ssl);
 #endif
 }
+
+#endif /* WOLFCRYPT_ONLY */
 

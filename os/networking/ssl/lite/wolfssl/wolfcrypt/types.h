@@ -1,14 +1,23 @@
 /* types.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 #ifndef WOLF_CRYPT_TYPES_H
@@ -102,7 +111,11 @@
 	    #ifdef _MSC_VER
 	        #define INLINE __inline
 	    #elif defined(__GNUC__)
-	        #define INLINE inline
+               #ifdef WOLFSSL_VXWORKS
+                   #define INLINE __inline__
+               #else
+                   #define INLINE inline
+               #endif
 	    #elif defined(__IAR_SYSTEMS_ICC__)
 	        #define INLINE inline
 	    #elif defined(THREADX)
@@ -134,6 +147,9 @@
 	#ifdef HAVE_THREAD_LS
 	    #if defined(_MSC_VER)
 	        #define THREAD_LS_T __declspec(thread)
+	    /* Thread local storage only in FreeRTOS v8.2.1 and higher */
+	    #elif defined(FREERTOS)
+	        #define THREAD_LS_T
 	    #else
 	        #define THREAD_LS_T __thread
 	    #endif
@@ -143,13 +159,13 @@
 
 
 	/* Micrium will use Visual Studio for compilation but not the Win32 API */
-	#if defined(_WIN32) && !defined(MICRIUM) && !defined(FREERTOS) \
+	#if defined(_WIN32) && !defined(MICRIUM) && !defined(FREERTOS) && !defined(FREERTOS_TCP) \
 	        && !defined(EBSNET)
 	    #define USE_WINDOWS_API
 	#endif
 
 
-	/* idea to add global alloc override by Moisés Guimarães  */
+	/* idea to add global alloc override by Moises Guimaraes  */
 	/* default to libc stuff */
 	/* XREALLOC is used once in normal math lib, not in fast math lib */
 	/* XFREE on some embeded systems doesn't like free(0) so test  */
@@ -167,11 +183,13 @@
 	    #define XREALLOC(p, n, h, t) realloc((p), (n))
 	#elif !defined(MICRIUM_MALLOC) && !defined(EBSNET) \
 	        && !defined(WOLFSSL_SAFERTOS) && !defined(FREESCALE_MQX) \
-	        && !defined(WOLFSSL_LEANPSK)
+	        && !defined(FREESCALE_KSDK_MQX) && !defined(FREESCALE_FREE_RTOS) \
+            && !defined(WOLFSSL_LEANPSK) && !defined(FREERTOS) && !defined(FREERTOS_TCP)\
+            && !defined(WOLFSSL_uITRON4) && !defined(WOLFSSL_uTKERNEL2)
 	    /* default C runtime, can install different routines at runtime via cbs */
 	    #include <wolfssl/wolfcrypt/memory.h>
 	    #define XMALLOC(s, h, t)     ((void)h, (void)t, wolfSSL_Malloc((s)))
-        #define XFREE(p, h, t)       {void* xp = (p); if((xp)) wolfSSL_Free((xp));}
+	    #define XFREE(p, h, t)       {void* xp = (p); if((xp)) wolfSSL_Free((xp));}
 	    #define XREALLOC(p, n, h, t) wolfSSL_Realloc((p), (n))
 	#endif
 
@@ -186,24 +204,32 @@
 
 	    #define XSTRLEN(s1)       strlen((s1))
 	    #define XSTRNCPY(s1,s2,n) strncpy((s1),(s2),(n))
-	    /* strstr, strncmp, and strncat only used by wolfSSL proper, not required for
-	       CTaoCrypt only */
+	    /* strstr, strncmp, and strncat only used by wolfSSL proper,
+         * not required for wolfCrypt only */
 	    #define XSTRSTR(s1,s2)    strstr((s1),(s2))
 	    #define XSTRNSTR(s1,s2,n) mystrnstr((s1),(s2),(n))
 	    #define XSTRNCMP(s1,s2,n) strncmp((s1),(s2),(n))
 	    #define XSTRNCAT(s1,s2,n) strncat((s1),(s2),(n))
 	    #ifndef USE_WINDOWS_API
 	        #define XSTRNCASECMP(s1,s2,n) strncasecmp((s1),(s2),(n))
-	        #define XSNPRINTF snprintf
 	    #else
 	        #define XSTRNCASECMP(s1,s2,n) _strnicmp((s1),(s2),(n))
-	        #define XSNPRINTF _snprintf
 	    #endif
+
+        #if defined(WOLFSSL_CERT_EXT) || defined(HAVE_ALPN)
+            /* use only Thread Safe version of strtok */
+            #ifndef USE_WINDOWS_API
+                #define XSTRTOK strtok_r
+            #else
+                #define XSTRTOK strtok_s
+            #endif
+        #endif
+	    #define XMEMCHR(s,c,l)    memchr((s), (c), (l))
 	#endif
 
 	#ifndef CTYPE_USER
 	    #include <ctype.h>
-	    #if defined(HAVE_ECC) || defined(HAVE_OCSP)
+	    #if defined(HAVE_ECC) || defined(HAVE_OCSP) || defined(WOLFSSL_KEY_GEN)
 	        #define XTOUPPER(c)     toupper((c))
 	        #define XISALPHA(c)     isalpha((c))
 	    #endif
@@ -258,7 +284,18 @@
 	    DYNAMIC_TYPE_X509         = 42,
 	    DYNAMIC_TYPE_TLSX         = 43,
 	    DYNAMIC_TYPE_OCSP         = 44,
-	    DYNAMIC_TYPE_SIGNATURE    = 45
+	    DYNAMIC_TYPE_SIGNATURE    = 45,
+	    DYNAMIC_TYPE_HASHES       = 46,
+        DYNAMIC_TYPE_SRP          = 47,
+        DYNAMIC_TYPE_COOKIE_PWD   = 48,
+        DYNAMIC_TYPE_USER_CRYPTO  = 49,
+        DYNAMIC_TYPE_OCSP_REQUEST = 50,
+        DYNAMIC_TYPE_X509_EXT     = 51,
+        DYNAMIC_TYPE_X509_STORE   = 52,
+        DYNAMIC_TYPE_X509_CTX     = 53,
+        DYNAMIC_TYPE_URL          = 54,
+        DYNAMIC_TYPE_DTLS_FRAG    = 55,
+        DYNAMIC_TYPE_DTLS_BUFFER  = 56
 	};
 
 	/* max error buffer string size */

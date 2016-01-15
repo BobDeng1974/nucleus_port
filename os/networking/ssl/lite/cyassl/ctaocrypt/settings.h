@@ -1,14 +1,23 @@
 /* settings.h
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 /* Place OS specific preprocessor flags, defines, includes here, will be
    included into every file because types.h includes it */
@@ -23,10 +32,6 @@
 #ifdef __cplusplus
     extern "C" {
 #endif
-
-/* Uncomment next line if using Nucleus */
-#define NUCLEUS
-#define OPENSSL_EXTRA
 
 /* Uncomment next line if using IPHONE */
 /* #define IPHONE */
@@ -74,7 +79,7 @@
 /* #define FREESCALE_MQX */
 
 /* Uncomment next line if using STM32F2 */
-/* #define WOLFSSL_STM32F2 */
+/* #define CYASSL_STM32F2 */
 
 /* Uncomment next line if using Comverge settings */
 /* #define COMVERGE */
@@ -103,24 +108,6 @@
     #define SIZEOF_LONG_LONG 8
 #endif
 
-#ifdef NUCLEUS
-    #include "nucleus.h"
-    #include "os/networking/ssl/lite/cyassl_nucleus_defs.h"
-    #undef SIZEOF_LONG
-    #define SIZEOF_LONG 4
-    #undef SIZEOF_LONG_LONG
-    #define SIZEOF_LONG_LONG 8
-    #if CFG_NU_OS_KERN_PLUS_SUPPLEMENT_STATIC_TEST
-        #define NO_INLINE
-    #endif
-    #if (ESAL_PR_ENDIANESS == ESAL_BIG_ENDIAN)
-        #define BIG_ENDIAN_ORDER
-    #else
-        #undef  BIG_ENDIAN_ORDER
-        #define LITTLE_ENDIAN_ORDER
-    #endif
-    #define NO_WOLFSSL_DIR
-#endif
 
 #ifdef CYASSL_USER_SETTINGS
     #include <user_settings.h>
@@ -456,7 +443,7 @@
     /* Note: MQX has no realloc, using fastmath above */
 #endif
 
-#ifdef WOLFSSL_STM32F2
+#ifdef CYASSL_STM32F2
     #define SIZEOF_LONG_LONG 8
     #define NO_DEV_RANDOM
     #define NO_CYASSL_DIR
@@ -630,9 +617,9 @@
     #endif
 
     #if (SSL_CFG_DER_LOAD_EN == DEF_ENABLED)
-        #define  WOLFSSL_DER_LOAD
+        #define  CYASSL_DER_LOAD
     #else
-        #undef   WOLFSSL_DER_LOAD
+        #undef   CYASSL_DER_LOAD
     #endif
 
     #if (SSL_CFG_DTLS_EN == DEF_ENABLED)
@@ -678,8 +665,8 @@
     #ifndef ATOMIC_USER
         #define ATOMIC_USER
     #endif
-    #ifndef WOLFSSL_DER_LOAD
-        #define WOLFSSL_DER_LOAD
+    #ifndef CYASSL_DER_LOAD
+        #define CYASSL_DER_LOAD
     #endif
     #ifndef KEEP_PEER_CERT
         #define KEEP_PEER_CERT

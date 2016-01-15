@@ -1,14 +1,23 @@
 /* asm.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
@@ -24,6 +33,89 @@
 
 /******************************************************************/
 /* fp_montgomery_reduce.c asm or generic */
+
+
+/* Each platform needs to query info type 1 from cpuid to see if aesni is
+ * supported. Also, let's setup a macro for proper linkage w/o ABI conflicts
+ */
+
+#if defined(HAVE_INTEL_MULX)
+#ifndef _MSC_VER
+    #define cpuid(reg, leaf, sub)\
+            __asm__ __volatile__ ("cpuid":\
+             "=a" (reg[0]), "=b" (reg[1]), "=c" (reg[2]), "=d" (reg[3]) :\
+             "a" (leaf), "c"(sub));
+
+    #define XASM_LINK(f) asm(f)
+#else
+
+    #include <intrin.h>
+    #define cpuid(a,b) __cpuid((int*)a,b)
+
+    #define XASM_LINK(f)
+
+#endif /* _MSC_VER */
+
+#define EAX 0
+#define EBX 1
+#define ECX 2 
+#define EDX 3
+    
+#define CPUID_AVX1   0x1
+#define CPUID_AVX2   0x2
+#define CPUID_RDRAND 0x4
+#define CPUID_RDSEED 0x8
+#define CPUID_BMI2   0x10   /* MULX, RORX */
+#define CPUID_ADX    0x20   /* ADCX, ADOX */
+
+#define IS_INTEL_AVX1       (cpuid_flags&CPUID_AVX1)
+#define IS_INTEL_AVX2       (cpuid_flags&CPUID_AVX2)
+#define IS_INTEL_BMI2       (cpuid_flags&CPUID_BMI2)
+#define IS_INTEL_ADX        (cpuid_flags&CPUID_ADX)
+#define IS_INTEL_RDRAND     (cpuid_flags&CPUID_RDRAND)
+#define IS_INTEL_RDSEED     (cpuid_flags&CPUID_RDSEED)
+#define SET_FLAGS         
+
+static word32 cpuid_check = 0 ;
+static word32 cpuid_flags = 0 ;
+
+static word32 cpuid_flag(word32 leaf, word32 sub, word32 num, word32 bit) {
+    int got_intel_cpu=0;
+    unsigned int reg[5]; 
+    
+    reg[4] = '\0' ;
+    cpuid(reg, 0, 0);  
+    if(memcmp((char *)&(reg[EBX]), "Genu", 4) == 0 &&  
+                memcmp((char *)&(reg[EDX]), "ineI", 4) == 0 &&  
+                memcmp((char *)&(reg[ECX]), "ntel", 4) == 0) {  
+        got_intel_cpu = 1;  
+    }    
+    if (got_intel_cpu) {
+        cpuid(reg, leaf, sub);
+        return((reg[num]>>bit)&0x1) ;
+    }
+    return 0 ;
+}
+
+INLINE static int set_cpuid_flags(void) {  
+    if(cpuid_check == 0) {
+        if(cpuid_flag(7, 0, EBX, 8)){  cpuid_flags |= CPUID_BMI2 ; }
+        if(cpuid_flag(7, 0, EBX,19)){  cpuid_flags |= CPUID_ADX  ; }
+		cpuid_check = 1 ;
+		return 0 ;
+    }
+    return 1 ;
+}
+
+#define RETURN return
+#define IF_HAVE_INTEL_MULX(func, ret)    \
+   if(cpuid_check==0)set_cpuid_flags() ; \
+   if(IS_INTEL_BMI2 && IS_INTEL_ADX){  func;  ret ;  }
+
+#else
+    #define IF_HAVE_INTEL_MULX(func, ret)
+#endif
+
 #if defined(TFM_X86) && !defined(TFM_SSE2) 
 /* x86-32 code */
 
@@ -63,7 +155,7 @@ __asm__(                                        \
 #define MONT_FINI
 #define LOOP_END
 #define LOOP_START \
-   mu = c[x] * mp
+   mu = c[x] * mp;
 
 #define INNERMUL                                          \
 __asm__(                                                      \
@@ -77,6 +169,77 @@ __asm__(                                                      \
 :"=g"(_c[LO]), "=r"(cy)                                   \
 :"0"(_c[LO]), "1"(cy), "r"(mu), "r"(*tmpm++)              \
 : "%rax", "%rdx", "cc")
+
+#if defined(HAVE_INTEL_MULX)
+#define MULX_INIT(a0, c0, cy)\
+    __asm__ volatile(                                     \
+             "xorq  %%r10, %%r10\n\t"                     \
+             "movq  %1,%%rdx\n\t"                         \
+             "addq  %2, %0\n\t"       /* c0+=cy; Set CF, OF */ \
+             "adoxq %%r10, %%r10\n\t" /* Reset   OF */    \
+             :"+m"(c0):"r"(a0),"r"(cy):"%r8","%r9", "%r10","%r11","%r12","%rdx") ; \
+
+#define MULX_INNERMUL_R1(c0, c1, pre, rdx)\
+   {                                                      \
+    __asm__  volatile (                                   \
+         "movq  %3, %%rdx\n\t"                            \
+         "mulx  %%r11,%%r9, %%r8 \n\t"                    \
+         "movq  %2, %%r12\n\t"                            \
+         "adoxq  %%r9,%0     \n\t"                        \
+         "adcxq  %%r8,%1     \n\t"                        \
+         :"+r"(c0),"+r"(c1):"m"(pre),"r"(rdx):"%r8","%r9", "%r10", "%r11","%r12","%rdx"    \
+    ); }
+    
+
+#define MULX_INNERMUL_R2(c0, c1, pre, rdx)\
+   {                                                      \
+    __asm__  volatile (                                   \
+         "movq  %3, %%rdx\n\t"                            \
+         "mulx  %%r12,%%r9, %%r8 \n\t"                    \
+         "movq  %2, %%r11\n\t"                            \
+         "adoxq  %%r9,%0     \n\t"                        \
+         "adcxq  %%r8,%1     \n\t"                        \
+         :"+r"(c0),"+r"(c1):"m"(pre),"r"(rdx):"%r8","%r9", "%r10", "%r11","%r12","%rdx"    \
+    ); }
+
+#define MULX_LOAD_R1(val)\
+    __asm__  volatile (                                   \
+        "movq %0, %%r11\n\t"\
+        ::"m"(val):"%r8","%r9", "%r10", "%r11","%r12","%rdx"\
+) ;
+
+#define MULX_INNERMUL_LAST(c0, c1, rdx)\
+   {                                                      \
+    __asm__  volatile (                                   \
+         "movq   %2, %%rdx\n\t"                           \
+         "mulx   %%r12,%%r9, %%r8 \n\t"                   \
+         "movq   $0, %%r10      \n\t"                     \
+         "adoxq  %%r10, %%r9   \n\t"                      \
+         "adcq   $0,%%r8       \n\t"                      \
+         "addq   %%r9,%0       \n\t"                      \
+         "adcq   $0,%%r8       \n\t"                      \
+         "movq   %%r8,%1       \n\t"                      \
+         :"+m"(c0),"=m"(c1):"r"(rdx):"%r8","%r9","%r10", "%r11", "%r12","%rdx"\
+    ); }
+
+#define MULX_INNERMUL8(x,y,z,cy)\
+{       word64 rdx = y ;\
+        MULX_LOAD_R1(x[0]) ;\
+        MULX_INIT(y, _c0, cy) ; /* rdx=y; z0+=cy; */ \
+        MULX_INNERMUL_R1(_c0, _c1, x[1], rdx) ;\
+        MULX_INNERMUL_R2(_c1, _c2, x[2], rdx) ;\
+        MULX_INNERMUL_R1(_c2, _c3, x[3], rdx) ;\
+        MULX_INNERMUL_R2(_c3, _c4, x[4], rdx) ;\
+        MULX_INNERMUL_R1(_c4, _c5, x[5], rdx) ;\
+        MULX_INNERMUL_R2(_c5, _c6, x[6], rdx) ;\
+        MULX_INNERMUL_R1(_c6, _c7, x[7], rdx) ;\
+        MULX_INNERMUL_LAST(_c7, cy, rdx) ;\
+}
+#define INNERMUL8_MULX \
+{\
+    MULX_INNERMUL8(tmpm, mu, _c, cy);\
+}
+#endif
 
 #define INNERMUL8 \
  __asm__(                  \
@@ -169,8 +332,7 @@ __asm__(                                                      \
  \
 :"=r"(_c), "=r"(cy)                    \
 : "0"(_c),  "1"(cy), "g"(mu), "r"(tmpm)\
-: "%rax", "%rdx", "%r10", "%r11", "cc")
-
+: "%rax", "%rdx", "%r10", "%r11", "cc")\
 
 #define PROPCARRY                           \
 __asm__(                                        \
@@ -1163,6 +1325,65 @@ __asm__  (                                                    \
      "adcq  %%rdx,%1     \n\t"                            \
      "adcq  $0,%2        \n\t"                            \
      :"=r"(c0), "=r"(c1), "=r"(c2): "0"(c0), "1"(c1), "2"(c2), "g"(i), "g"(j)  :"%rax","%rdx","cc");
+
+
+#if defined(HAVE_INTEL_MULX)
+#define MULADD_MULX(b0, c0, c1, rdx)\
+    __asm__  volatile (                                   \
+         "movq   %3, %%rdx\n\t"                           \
+         "mulx  %2,%%r9, %%r8 \n\t"                       \
+         "adoxq  %%r9,%0     \n\t"                        \
+         "adcxq  %%r8,%1     \n\t"                        \
+         :"+r"(c0),"+r"(c1):"r"(b0), "r"(rdx):"%r8","%r9","%r10","%rdx"\
+    )
+
+
+#define MULADD_MULX_ADD_CARRY(c0, c1)\
+    __asm__ volatile(\
+    "mov $0, %%r10\n\t"\
+    "movq %1, %%r8\n\t"\
+    "adox %%r10, %0\n\t"\
+    "adcx %%r10, %1\n\t"\
+    :"+r"(c0),"+r"(c1)::"%r8","%r9","%r10","%rdx") ;
+
+#define MULADD_SET_A(a0)\
+    __asm__ volatile("add $0, %%r8\n\t"                   \
+             "movq  %0,%%rdx\n\t"                         \
+             ::"r"(a0):"%r8","%r9","%r10","%rdx") ;
+
+#define MULADD_BODY(a,b,c)\
+    {   word64 rdx = a->dp[ix] ;      \
+        cp = &(c->dp[iz]) ;           \
+        c0 = cp[0] ; c1 = cp[1];      \
+        MULADD_SET_A(rdx) ;           \
+        MULADD_MULX(b0, c0, c1, rdx) ;\
+        cp[0]=c0; c0=cp[2];           \
+        MULADD_MULX(b1, c1, c0, rdx) ;\
+        cp[1]=c1; c1=cp[3];           \
+        MULADD_MULX(b2, c0, c1, rdx) ;\
+        cp[2]=c0; c0=cp[4];           \
+        MULADD_MULX(b3, c1, c0, rdx) ;\
+        cp[3]=c1; c1=cp[5];           \
+        MULADD_MULX_ADD_CARRY(c0, c1);\
+        cp[4]=c0; cp[5]=c1;           \
+    }
+
+#define TFM_INTEL_MUL_COMBA(a, b, c)\
+  for(ix=0; ix<pa; ix++)c->dp[ix]=0 ; \
+  for(iy=0; (iy<b->used); iy+=4) {    \
+    fp_digit *bp ;                    \
+    bp = &(b->dp[iy+0]) ;             \
+    fp_digit b0 = bp[0] , b1= bp[1],  \
+             b2= bp[2], b3= bp[3];    \
+    ix=0, iz=iy;                      \
+    while(ix<a->used) {               \
+        fp_digit c0, c1;              \
+        fp_digit *cp ;                \
+        MULADD_BODY(a,b,c);           \
+        ix++ ; iz++ ;                 \
+    }                                 \
+};
+#endif
 
 #elif defined(TFM_SSE2)
 /* use SSE2 optimizations */

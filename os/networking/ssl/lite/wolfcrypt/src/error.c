@@ -1,14 +1,23 @@
 /* error.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
@@ -306,6 +315,57 @@ const char* wc_GetErrorString(int error)
 
     case THREAD_STORE_SET_E:
         return "Thread Storage Set error";
+
+    case MAC_CMP_FAILED_E:
+        return "MAC comparison failed";
+
+    case IS_POINT_E:
+        return "ECC is point on curve failed";
+
+    case ECC_INF_E:
+        return " ECC point at infinity error";
+
+    case ECC_PRIV_KEY_E:
+        return " ECC private key is not valid error";
+
+    case SRP_CALL_ORDER_E:
+        return "SRP function called in the wrong order error";
+
+    case SRP_VERIFY_E:
+        return "SRP proof verification error";
+
+    case SRP_BAD_KEY_E:
+        return "SRP bad key values error";
+
+    case ASN_NO_SKID:
+        return "ASN no Subject Key Identifier found error";
+
+    case ASN_NO_AKID:
+        return "ASN no Authority Key Identifier found error";
+
+    case ASN_NO_KEYUSAGE:
+        return "ASN no Key Usage found error";
+
+    case SKID_E:
+        return "Setting Subject Key Identifier error";
+
+    case AKID_E:
+        return "Setting Authority Key Identifier error";
+
+    case KEYUSAGE_E:
+        return "Bad Key Usage value error";
+
+    case CERTPOLICIES_E:
+        return "Setting Certificate Policies error";
+
+    case WC_INIT_E:
+        return "wolfCrypt Initialize Failure error";
+
+    case SIG_VERIFY_E:
+        return "Signature verify error";
+
+    case BAD_COND_E:
+        return "Bad condition variable operation error";
 
     default:
         return "unknown error number";

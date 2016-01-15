@@ -1,14 +1,23 @@
 /* sha.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 
 #ifdef HAVE_CONFIG_H
@@ -48,12 +57,11 @@
 	    return ShaFinal_fips(sha,out);
     }
 
-    int wc_ShaHash(const byte* data, word32 sz, byte* out)
-    {
-        return ShaHash(data, sz, out);
-    }
-
 #else /* else build without fips */
+
+#if defined(WOLFSSL_TI_HASH)
+    /* #include <wolfcrypt/src/port/ti/ti-hash.c> included by wc_port.c */
+#else
 
 #ifdef WOLFSSL_PIC32MZ_HASH
 #define wc_InitSha   wc_InitSha_sw
@@ -64,7 +72,7 @@
 
 #ifdef FREESCALE_MMCAU
     #include "cau_api.h"
-    #define XTRANSFORM(S,B)  cau_sha1_hash_n((B), 1, ((S))->digest)
+    #define XTRANSFORM(S,B)  Transform((S), (B))
 #else
     #define XTRANSFORM(S,B)  Transform((S))
 #endif
@@ -189,20 +197,27 @@ int wc_ShaFinal(Sha* sha, byte* hash)
 
 #else /* wc_ software implementation */
 
-#ifndef min
+#ifndef WOLFSSL_HAVE_MIN
+#define WOLFSSL_HAVE_MIN
 
-static INLINE word32 min(word32 a, word32 b)
-{
-    return a > b ? b : a;
-}
+    static INLINE word32 min(word32 a, word32 b)
+    {
+        return a > b ? b : a;
+    }
 
-#endif /* min */
+#endif /* WOLFSSL_HAVE_MIN */
 
 
 int wc_InitSha(Sha* sha)
 {
+    int ret = 0;
 #ifdef FREESCALE_MMCAU
+    ret = wolfSSL_CryptHwMutexLock();
+    if(ret != 0) {
+        return ret;
+    }
     cau_sha1_initialize_output(sha->digest);
+    wolfSSL_CryptHwMutexUnLock();
 #else
     sha->digest[0] = 0x67452301L;
     sha->digest[1] = 0xEFCDAB89L;
@@ -215,9 +230,21 @@ int wc_InitSha(Sha* sha)
     sha->loLen   = 0;
     sha->hiLen   = 0;
 
-    return 0;
+    return ret;
 }
 
+#ifdef FREESCALE_MMCAU
+static int Transform(Sha* sha, byte* data)
+{
+    int ret = wolfSSL_CryptHwMutexLock();
+    if(ret == 0) {
+        cau_sha1_hash_n(data, 1, sha->digest);
+        wolfSSL_CryptHwMutexUnLock();
+    }
+    return ret;
+}
+#endif /* FREESCALE_MMCAU */
+        
 #ifndef FREESCALE_MMCAU
 
 #define blk0(i) (W[i] = sha->buffer[i])
@@ -229,16 +256,16 @@ rotlFixed(W[((i)+13)&15]^W[((i)+8)&15]^W[((i)+2)&15]^W[(i)&15],1))
 #define f3(x,y,z) (((x)&(y))|((z)&((x)|(y))))
 #define f4(x,y,z) ((x)^(y)^(z))
 
-/* (R0+WOLFSSL_R1), WOLFSSL_R2, WOLFSSL_R3, WOLFSSL_R4 are the different operations used in SHA1 */
+/* (R0+R1), R2, R3, R4 are the different operations used in SHA1 */
 #define R0(v,w,x,y,z,i) (z)+= f1((w),(x),(y)) + blk0((i)) + 0x5A827999+ \
 rotlFixed((v),5); (w) = rotlFixed((w),30);
-#define WOLFSSL_R1(v,w,x,y,z,i) (z)+= f1((w),(x),(y)) + blk1((i)) + 0x5A827999+ \
+#define R1(v,w,x,y,z,i) (z)+= f1((w),(x),(y)) + blk1((i)) + 0x5A827999+ \
 rotlFixed((v),5); (w) = rotlFixed((w),30);
-#define WOLFSSL_R2(v,w,x,y,z,i) (z)+= f2((w),(x),(y)) + blk1((i)) + 0x6ED9EBA1+ \
+#define R2(v,w,x,y,z,i) (z)+= f2((w),(x),(y)) + blk1((i)) + 0x6ED9EBA1+ \
 rotlFixed((v),5); (w) = rotlFixed((w),30);
-#define WOLFSSL_R3(v,w,x,y,z,i) (z)+= f3((w),(x),(y)) + blk1((i)) + 0x8F1BBCDC+ \
+#define R3(v,w,x,y,z,i) (z)+= f3((w),(x),(y)) + blk1((i)) + 0x8F1BBCDC+ \
 rotlFixed((v),5); (w) = rotlFixed((w),30);
-#define WOLFSSL_R4(v,w,x,y,z,i) (z)+= f4((w),(x),(y)) + blk1((i)) + 0xCA62C1D6+ \
+#define R4(v,w,x,y,z,i) (z)+= f4((w),(x),(y)) + blk1((i)) + 0xCA62C1D6+ \
 rotlFixed((v),5); (w) = rotlFixed((w),30);
 
 static void Transform(Sha* sha)
@@ -261,22 +288,22 @@ static void Transform(Sha* sha)
     }
 
     for (; i < 20; i++) {
-        WOLFSSL_R1(a, b, c, d, e, i);
+        R1(a, b, c, d, e, i);
         t = e; e = d; d = c; c = b; b = a; a = t;
     }
 
     for (; i < 40; i++) {
-        WOLFSSL_R2(a, b, c, d, e, i);
+        R2(a, b, c, d, e, i);
         t = e; e = d; d = c; c = b; b = a; a = t;
     }
 
     for (; i < 60; i++) {
-        WOLFSSL_R3(a, b, c, d, e, i);
+        R3(a, b, c, d, e, i);
         t = e; e = d; d = c; c = b; b = a; a = t;
     }
 
     for (; i < 80; i++) {
-        WOLFSSL_R4(a, b, c, d, e, i);
+        R4(a, b, c, d, e, i);
         t = e; e = d; d = c; c = b; b = a; a = t;
     }
 #else
@@ -287,25 +314,25 @@ static void Transform(Sha* sha)
     R0(c,d,e,a,b, 8); R0(b,c,d,e,a, 9); R0(a,b,c,d,e,10); R0(e,a,b,c,d,11);
     R0(d,e,a,b,c,12); R0(c,d,e,a,b,13); R0(b,c,d,e,a,14); R0(a,b,c,d,e,15);
 
-    WOLFSSL_R1(e,a,b,c,d,16); WOLFSSL_R1(d,e,a,b,c,17); WOLFSSL_R1(c,d,e,a,b,18); WOLFSSL_R1(b,c,d,e,a,19);
+    R1(e,a,b,c,d,16); R1(d,e,a,b,c,17); R1(c,d,e,a,b,18); R1(b,c,d,e,a,19);
 
-    WOLFSSL_R2(a,b,c,d,e,20); WOLFSSL_R2(e,a,b,c,d,21); WOLFSSL_R2(d,e,a,b,c,22); WOLFSSL_R2(c,d,e,a,b,23);
-    WOLFSSL_R2(b,c,d,e,a,24); WOLFSSL_R2(a,b,c,d,e,25); WOLFSSL_R2(e,a,b,c,d,26); WOLFSSL_R2(d,e,a,b,c,27);
-    WOLFSSL_R2(c,d,e,a,b,28); WOLFSSL_R2(b,c,d,e,a,29); WOLFSSL_R2(a,b,c,d,e,30); WOLFSSL_R2(e,a,b,c,d,31);
-    WOLFSSL_R2(d,e,a,b,c,32); WOLFSSL_R2(c,d,e,a,b,33); WOLFSSL_R2(b,c,d,e,a,34); WOLFSSL_R2(a,b,c,d,e,35);
-    WOLFSSL_R2(e,a,b,c,d,36); WOLFSSL_R2(d,e,a,b,c,37); WOLFSSL_R2(c,d,e,a,b,38); WOLFSSL_R2(b,c,d,e,a,39);
+    R2(a,b,c,d,e,20); R2(e,a,b,c,d,21); R2(d,e,a,b,c,22); R2(c,d,e,a,b,23);
+    R2(b,c,d,e,a,24); R2(a,b,c,d,e,25); R2(e,a,b,c,d,26); R2(d,e,a,b,c,27);
+    R2(c,d,e,a,b,28); R2(b,c,d,e,a,29); R2(a,b,c,d,e,30); R2(e,a,b,c,d,31);
+    R2(d,e,a,b,c,32); R2(c,d,e,a,b,33); R2(b,c,d,e,a,34); R2(a,b,c,d,e,35);
+    R2(e,a,b,c,d,36); R2(d,e,a,b,c,37); R2(c,d,e,a,b,38); R2(b,c,d,e,a,39);
 
-    WOLFSSL_R3(a,b,c,d,e,40); WOLFSSL_R3(e,a,b,c,d,41); WOLFSSL_R3(d,e,a,b,c,42); WOLFSSL_R3(c,d,e,a,b,43);
-    WOLFSSL_R3(b,c,d,e,a,44); WOLFSSL_R3(a,b,c,d,e,45); WOLFSSL_R3(e,a,b,c,d,46); WOLFSSL_R3(d,e,a,b,c,47);
-    WOLFSSL_R3(c,d,e,a,b,48); WOLFSSL_R3(b,c,d,e,a,49); WOLFSSL_R3(a,b,c,d,e,50); WOLFSSL_R3(e,a,b,c,d,51);
-    WOLFSSL_R3(d,e,a,b,c,52); WOLFSSL_R3(c,d,e,a,b,53); WOLFSSL_R3(b,c,d,e,a,54); WOLFSSL_R3(a,b,c,d,e,55);
-    WOLFSSL_R3(e,a,b,c,d,56); WOLFSSL_R3(d,e,a,b,c,57); WOLFSSL_R3(c,d,e,a,b,58); WOLFSSL_R3(b,c,d,e,a,59);
+    R3(a,b,c,d,e,40); R3(e,a,b,c,d,41); R3(d,e,a,b,c,42); R3(c,d,e,a,b,43);
+    R3(b,c,d,e,a,44); R3(a,b,c,d,e,45); R3(e,a,b,c,d,46); R3(d,e,a,b,c,47);
+    R3(c,d,e,a,b,48); R3(b,c,d,e,a,49); R3(a,b,c,d,e,50); R3(e,a,b,c,d,51);
+    R3(d,e,a,b,c,52); R3(c,d,e,a,b,53); R3(b,c,d,e,a,54); R3(a,b,c,d,e,55);
+    R3(e,a,b,c,d,56); R3(d,e,a,b,c,57); R3(c,d,e,a,b,58); R3(b,c,d,e,a,59);
 
-    WOLFSSL_R4(a,b,c,d,e,60); WOLFSSL_R4(e,a,b,c,d,61); WOLFSSL_R4(d,e,a,b,c,62); WOLFSSL_R4(c,d,e,a,b,63);
-    WOLFSSL_R4(b,c,d,e,a,64); WOLFSSL_R4(a,b,c,d,e,65); WOLFSSL_R4(e,a,b,c,d,66); WOLFSSL_R4(d,e,a,b,c,67);
-    WOLFSSL_R4(c,d,e,a,b,68); WOLFSSL_R4(b,c,d,e,a,69); WOLFSSL_R4(a,b,c,d,e,70); WOLFSSL_R4(e,a,b,c,d,71);
-    WOLFSSL_R4(d,e,a,b,c,72); WOLFSSL_R4(c,d,e,a,b,73); WOLFSSL_R4(b,c,d,e,a,74); WOLFSSL_R4(a,b,c,d,e,75);
-    WOLFSSL_R4(e,a,b,c,d,76); WOLFSSL_R4(d,e,a,b,c,77); WOLFSSL_R4(c,d,e,a,b,78); WOLFSSL_R4(b,c,d,e,a,79);
+    R4(a,b,c,d,e,60); R4(e,a,b,c,d,61); R4(d,e,a,b,c,62); R4(c,d,e,a,b,63);
+    R4(b,c,d,e,a,64); R4(a,b,c,d,e,65); R4(e,a,b,c,d,66); R4(d,e,a,b,c,67);
+    R4(c,d,e,a,b,68); R4(b,c,d,e,a,69); R4(a,b,c,d,e,70); R4(e,a,b,c,d,71);
+    R4(d,e,a,b,c,72); R4(c,d,e,a,b,73); R4(b,c,d,e,a,74); R4(a,b,c,d,e,75);
+    R4(e,a,b,c,d,76); R4(d,e,a,b,c,77); R4(c,d,e,a,b,78); R4(b,c,d,e,a,79);
 #endif
 
     /* Add the working vars back into digest state[] */
@@ -407,36 +434,8 @@ int wc_ShaFinal(Sha* sha, byte* hash)
 #endif /* STM32F2_HASH */
 
 
-int wc_ShaHash(const byte* data, word32 len, byte* hash)
-{
-    int ret = 0;
-#ifdef WOLFSSL_SMALL_STACK
-    Sha* sha;
-#else
-    Sha sha[1];
-#endif
 
-#ifdef WOLFSSL_SMALL_STACK
-    sha = (Sha*)XMALLOC(sizeof(Sha), NULL, DYNAMIC_TYPE_TMP_BUFFER);
-    if (sha == NULL)
-        return MEMORY_E;
-#endif
-
-    if ((ret = wc_InitSha(sha)) != 0) {
-        WOLFSSL_MSG("wc_InitSha failed");
-    }
-    else {
-        wc_ShaUpdate(sha, data, len);
-        wc_ShaFinal(sha, hash);
-    }
-
-#ifdef WOLFSSL_SMALL_STACK
-    XFREE(sha, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-#endif
-
-    return ret;
-
-}
 #endif /* HAVE_FIPS */
+#endif /* WOLFSSL_TI_HASH */
 #endif /* NO_SHA */
 

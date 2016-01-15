@@ -1,14 +1,23 @@
 /* logging.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
@@ -81,7 +90,11 @@ void wolfSSL_Debugging_OFF(void)
 #ifdef DEBUG_WOLFSSL
 
 #ifdef FREESCALE_MQX
-    #include <fio.h>
+    #if MQX_USE_IO_OLD
+        #include <fio.h>
+    #else
+        #include <nio.h>
+    #endif
 #else
     #include <stdio.h>   /* for default printf stuff */
 #endif
@@ -106,6 +119,8 @@ static void wolfssl_log(const int logLevel, const char *const logMessage)
             fflush(stdout) ;
             printf("%s\n", logMessage);
             fflush(stdout) ;
+#elif defined(WOLFSSL_LOG_PRINTF)
+            printf("%s\n", logMessage);
 #else
             fprintf(stderr, "%s\n", logMessage);
 #endif
@@ -118,6 +133,44 @@ void WOLFSSL_MSG(const char* msg)
 {
     if (loggingEnabled)
         wolfssl_log(INFO_LOG , msg);
+}
+
+
+void WOLFSSL_BUFFER(byte* buffer, word32 length)
+{
+    #define LINE_LEN 16
+
+    if (loggingEnabled) {
+        word32 i;
+        char line[80];
+
+        if (!buffer) {
+            wolfssl_log(INFO_LOG, "\tNULL");
+
+            return;
+        }
+
+        sprintf(line, "\t");
+
+        for (i = 0; i < LINE_LEN; i++) {
+            if (i < length)
+                sprintf(line + 1 + i * 3,"%02x ", buffer[i]);
+            else
+                sprintf(line + 1 + i * 3, "   ");
+        }
+
+        sprintf(line + 1 + LINE_LEN * 3, "| ");
+
+        for (i = 0; i < LINE_LEN; i++)
+            if (i < length)
+                sprintf(line + 3 + LINE_LEN * 3 + i,
+                     "%c", 31 < buffer[i] && buffer[i] < 127 ? buffer[i] : '.');
+
+        wolfssl_log(INFO_LOG, line);
+
+        if (length > LINE_LEN)
+            WOLFSSL_BUFFER(buffer + LINE_LEN, length - LINE_LEN);
+    }
 }
 
 

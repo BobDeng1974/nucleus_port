@@ -1,20 +1,32 @@
 /* misc.c
  *
- * Copyright (C) 2006-2015 wolfSSL Inc.  All rights reserved.
+ * Copyright (C) 2006-2015 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
- * Contact licensing@wolfssl.com with any questions or comments.
+ * wolfSSL is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- * http://www.wolfssl.com
+ * wolfSSL is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
 
 #include <wolfssl/wolfcrypt/settings.h>
+
+#ifndef WOLF_CRYPT_MISC_C
+#define WOLF_CRYPT_MISC_C
 
 #include <wolfssl/wolfcrypt/misc.h>
 
@@ -26,11 +38,8 @@
  */
 
 #ifdef NO_INLINE
-    #ifdef STATIC
-        #undef STATIC
-    #endif
     #define STATIC
-#elif !defined(STATIC)
+#else
     #define STATIC static
 #endif
 
@@ -173,4 +182,20 @@ STATIC INLINE void ForceZero(const void* mem, word32 len)
     while (len--) *z++ = 0;
 }
 
+
+/* check all length bytes for equality, return 0 on success */
+STATIC INLINE int ConstantCompare(const byte* a, const byte* b, int length)
+{
+    int i;
+    int compareSum = 0;
+
+    for (i = 0; i < length; i++) {
+        compareSum |= a[i] ^ b[i];
+    }
+
+    return compareSum;
+}
+
 #undef STATIC
+
+#endif /* WOLF_CRYPT_MISC_C */
