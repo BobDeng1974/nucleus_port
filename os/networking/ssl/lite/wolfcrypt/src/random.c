@@ -1305,7 +1305,7 @@ int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
 #elif defined(NUCLEUS)
     #include "networking/nu_networking.h"
 
-    int GenerateSeed(OS_Seed* os, byte* output, word32 sz)
+    int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
     {
         int i;
         for (i = 0; i < sz; i++) {
