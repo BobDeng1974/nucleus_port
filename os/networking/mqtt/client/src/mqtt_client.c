@@ -26,6 +26,13 @@
 
 #include "wolfmqtt/mqtt_client.h"
 
+/* Options */
+//#define WOLFMQTT_DEBUG_CLIENT
+#ifdef WOLFMQTT_NO_STDIO
+    #undef WOLFMQTT_DEBUG_CLIENT
+#endif
+
+/* Private functions */
 static int MqttClient_WaitType(MqttClient *client, int timeout_ms,
     byte wait_type, word16 wait_packet_id, void* p_decode)
 {
@@ -47,7 +54,7 @@ static int MqttClient_WaitType(MqttClient *client, int timeout_ms,
         msg_type = MQTT_PACKET_TYPE_GET(header->type_flags);
         msg_qos = MQTT_PACKET_FLAGS_GET_QOS(header->type_flags);
 
-#if 0
+#ifdef WOLFMQTT_DEBUG_CLIENT
         printf("Read Packet: Len %d, Type %d, Qos %d\n",
             packet_len, msg_type, msg_qos);
 #endif
@@ -210,7 +217,7 @@ static int MqttClient_WaitType(MqttClient *client, int timeout_ms,
 
             default:
                 /* Other types are server side only, ignore */
-#if 0
+#ifdef WOLFMQTT_DEBUG_CLIENT
                 printf("MqttClient_WaitMessage: Invalid client packet type %u!\n",
                     msg_type);
 #endif
@@ -226,12 +233,16 @@ static int MqttClient_WaitType(MqttClient *client, int timeout_ms,
                 }
             }
         }
+        else {
+            /* We got a message, so return now */
+            break;
+        }
     }
 
     return MQTT_CODE_SUCCESS;
 }
 
-
+/* Public Functions */
 int MqttClient_Init(MqttClient *client, MqttNet* net,
     MqttMsgCb msg_cb,
     byte* tx_buf, int tx_buf_len,
