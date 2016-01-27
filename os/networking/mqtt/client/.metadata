@@ -5,6 +5,7 @@ component("mqttclient") {
     enable      false
 
     requires("nu.os.net.stack")
+	requires("nu.os.net.ssl.lite")
 
     includepath ["os/networking/mqtt/client"]
 
@@ -17,12 +18,5 @@ component("mqttclient") {
             Dir.glob("src/*.c") +
             Dir.glob("*.c")
         }
-    }
-    
-    option("enable_mqtt_tls") {
-        default false
-        enregister false
-        description "Enables TLS using wolfSSL."
-    	requires "nu.os.net.ssl.lite"
     }
 }
