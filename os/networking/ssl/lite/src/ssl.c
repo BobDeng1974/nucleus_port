@@ -90,7 +90,9 @@
 #ifndef NO_FILESYSTEM
     #if !defined(USE_WINDOWS_API) && !defined(NO_WOLFSSL_DIR) \
             && !defined(EBSNET)
-        #include <dirent.h>
+        #ifndef HAVE_DIRENT_H
+            #include <dirent.h>
+        #endif
         #include <sys/stat.h>
     #endif
     #ifdef EBSNET
@@ -7841,6 +7843,9 @@ int wolfSSL_set_compression(WOLFSSL* ssl)
 #elif defined(WOLFSSL_MDK_ARM)  || defined(WOLFSSL_KEIL_TCP_NET)
     #define CloseSocket(s) closesocket(s)
     extern int closesocket(int) ;
+#elif defined(NUCLEUS)
+    #define CloseSocket(s) NU_Close_Socket(s)
+    extern STATUS NU_Close_Socket(INT socketd);
 #else
     #define CloseSocket(s) close(s)
 #endif

@@ -34,7 +34,9 @@
 #include <wolfssl/error-ssl.h>
 
 #ifndef NO_FILESYSTEM
-    #include <dirent.h>
+    #ifndef HAVE_DIRENT_H
+        #include <dirent.h>
+    #endif
     #include <sys/stat.h>
 #endif
 

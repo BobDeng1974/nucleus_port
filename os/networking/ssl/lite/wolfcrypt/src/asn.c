@@ -97,25 +97,32 @@
 
 #ifdef HAVE_RTP_SYS
     /* uses parital <time.h> structures */
-    #define XTIME(tl)       (0)
-    #define XGMTIME(c, t)   rtpsys_gmtime((c))
+    #define XTIME(tl)  (0)
+    #define XGMTIME(c, t) my_gmtime((c))
+    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
 #elif defined(MICRIUM)
     #if (NET_SECURE_MGR_CFG_EN == DEF_ENABLED)
         #define XVALIDATE_DATE(d,f,t) NetSecure_ValidateDateHandler((d),(f),(t))
     #else
-        #define XVALIDATE_DATE(d,f,t) (0)
+        #define XVALIDATE_DATE(d, f, t) (0)
     #endif
     #define NO_TIME_H
     /* since Micrium not defining XTIME or XGMTIME, CERT_GEN not available */
 #elif defined(MICROCHIP_TCPIP_V5) || defined(MICROCHIP_TCPIP)
     #include <time.h>
-    #define XTIME(t1)       pic32_time((t1))
+    #define XTIME(t1) pic32_time((t1))
+    #define XGMTIME(c, t) gmtime((c))
+    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
 #elif defined(FREESCALE_MQX) || defined(FREESCALE_KSDK_MQX)
-    #define XTIME(t1)       mqx_time((t1))
-    #define HAVE_GMTIME_R
+    #define XTIME(t1)  mqx_time((t1))
+    #define XGMTIME(c, t) mqx_gmtime((c), (t))
+    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
 #elif defined(FREESCALE_KSDK_BM)
     #include <time.h>
-    #define XTIME(t1)       ksdk_time((t1))
+    #define XTIME(t1)  ksdk_time((t1))
+    #define XGMTIME(c, t) gmtime((c))
+    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
+
 #elif defined(USER_TIME)
     /* user time, and gmtime compatible functions, there is a gmtime
        implementation here that WINCE uses, so really just need some ticks
@@ -125,72 +132,62 @@
     #define USE_WOLF_TM
     #define USE_WOLF_TIME_T
 
-    /* forward declaration */
-    struct tm* gmtime(const time_t* timer);
-    extern time_t XTIME(time_t * timer);
+    #define XGMTIME(c, t) gmtime((c))
+    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
 
-    #ifdef STACK_TRAP
-        /* for stack trap tracking, don't call os gmtime on OS X/linux,
-           uses a lot of stack spce */
-        extern time_t time(time_t * timer);
-        #define XTIME(tl)  time((tl))
-    #endif /* STACK_TRAP */
 #elif defined(TIME_OVERRIDES)
     /* user would like to override time() and gmtime() functionality */
     #ifndef HAVE_TIME_T_TYPE
         #define USE_WOLF_TIME_T
     #endif
-    extern time_t XTIME(time_t * timer);
-
     #ifndef HAVE_TM_TYPE
         #define USE_WOLF_TM
     #endif
-    extern struct tm* XGMTIME(const time_t* timer, struct tm* tmp);
+    #ifndef HAVE_VALIDATE_DATE
+        #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
+    #endif
     #define NEED_TMP_TIME
 
 #elif defined(IDIRECT_DEV_TIME)
     /*Gets the timestamp from cloak software owned by VT iDirect
     in place of time() from <time.h> */
     #include <time.h>
-    #define XTIME(t1)       idirect_time((t1))
+    #define XTIME(t1)  idirect_time((t1))
+    #define XGMTIME(c) gmtime((c))
+    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
+
 #elif defined(NUCLEUS)
     #include "nucleus.h"
     #include "kernel/nu_kernel.h"
-    #define XTIME(t1)       nucleus_time((t1))
     #if !defined(NUCLEUS_USE_GETTIMEOFDAY)
         #define WOLFSSL_GMTIME
         #define USE_WOLF_TM
         #define USE_WOLF_TIME_T
     #endif
-#elif defined(WOLFSSL_TIRTOS)
-    #define XTIME(t1)       trirtos_time((t1))
+    #define XTIME(t1)       nucleus_time((t1))
+    #define XGMTIME(c, t)   gmtime((c))
+    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
+
 #elif defined(_WIN32_WCE)
     #include <windows.h>
     #define XTIME(t1)       windows_time((t1))
     #define WOLFSSL_GMTIME
+
 #else
     /* default */
     /* uses complete <time.h> facility */
     #include <time.h>
-#endif
-
-
-/* Map default time functions */
-#if !defined(XTIME)
-    #define XTIME(tl)       time((tl))
-#endif
-#if !defined(XVALIDATE_DATE)
-    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
-#endif
-#if !defined(XGMTIME) && !defined(TIME_OVERRIDES)
+    #define XTIME(tl)     time((tl))
     #ifdef HAVE_GMTIME_R
-        #define XGMTIME(c, t)   gmtime_r((c), (t))
+        #define XGMTIME(c, t) gmtime_r((c), (t))
         #define NEED_TMP_TIME
     #else
-        #define XGMTIME(c, t)   gmtime((c))
+        #define XGMTIME(c, t) gmtime((c))
     #endif
+    #define XVALIDATE_DATE(d, f, t) ValidateDate((d), (f), (t))
 #endif
 
+/* wolf struct tm and time_t */
 #if defined(USE_WOLF_TM)
     struct tm {
         int  tm_sec;     /* seconds after the minute [0-60] */
@@ -208,6 +205,23 @@
 #endif /* USE_WOLF_TM */
 #if defined(USE_WOLF_TIME_T)
     typedef long time_t;
+#endif
+
+
+/* forward declarations */
+#if defined(USER_TIME)
+    struct tm* gmtime(const time_t* timer);
+    extern time_t XTIME(time_t * timer);
+
+    #ifdef STACK_TRAP
+        /* for stack trap tracking, don't call os gmtime on OS X/linux,
+           uses a lot of stack spce */
+        extern time_t time(time_t * timer);
+        #define XTIME(tl)  time((tl))
+    #endif /* STACK_TRAP */
+#elif defined(TIME_OVERRIDES)
+    extern time_t XTIME(time_t * timer);
+    extern struct tm* XGMTIME(const time_t* timer, struct tm* tmp);
 #endif
 
 
@@ -286,11 +300,11 @@ struct tm* gmtime(const time_t* timer)
 }
 #endif /* WOLFSSL_GMTIME */
 
+#ifdef HAVE_RTP_SYS
 
-#if defined(HAVE_RTP_SYS)
 #define YEAR0          1900
 
-struct tm* rtpsys_gmtime(const time_t* timer)       /* has a gmtime() but hangs */
+struct tm* my_gmtime(const time_t* timer)       /* has a gmtime() but hangs */
 {
     static struct tm st_time;
     struct tm* ret = &st_time;
@@ -358,6 +372,12 @@ time_t mqx_time(time_t* timer)
     return *timer;
 }
 
+/* CodeWarrior GCC toolchain only has gmtime_r(), no gmtime() */
+struct tm* mqx_gmtime(const time_t* clock, struct tm* tmpTime)
+{
+    return gmtime_r(clock, tmpTime);
+}
+
 #endif /* FREESCALE_MQX */
 
 #ifdef FREESCALE_KSDK_BM
@@ -382,7 +402,8 @@ time_t ksdk_time(time_t* timer)
 #endif /* FREESCALE_KSDK_BM */
 
 #ifdef WOLFSSL_TIRTOS
-time_t trirtos_time(time_t * timer)
+
+time_t XTIME(time_t * timer)
 {
     time_t sec = 0;
 
@@ -393,6 +414,7 @@ time_t trirtos_time(time_t * timer)
 
     return sec;
 }
+
 #endif /* WOLFSSL_TIRTOS */
 
 static INLINE word32 btoi(byte b)
@@ -3082,7 +3104,7 @@ int ValidateDate(const byte* date, byte format, int dateType)
     int    diffHH = 0 ; int diffMM = 0 ;
     int    diffSign = 0 ;
 
-#if defined(NEED_TMP_TIME)
+#if defined(FREESCALE_MQX) || defined(TIME_OVERRIDES) || defined(NEED_TMP_TIME)
     struct tm tmpTimeStorage;
     tmpTime = &tmpTimeStorage;
 #else
@@ -6097,7 +6119,7 @@ static int SetValidity(byte* output, int daysValid)
     struct tm* tmpTime = NULL;
     struct tm  local;
 
-#if defined(NEED_TMP_TIME)
+#if defined(FREESCALE_MQX) || defined(TIME_OVERRIDES) || defined(NEED_TMP_TIME)
     /* for use with gmtime_r */
     struct tm tmpTimeStorage;
     tmpTime = &tmpTimeStorage;

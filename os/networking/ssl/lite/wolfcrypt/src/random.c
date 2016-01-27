@@ -126,7 +126,7 @@ int  wc_RNG_GenerateByte(WC_RNG* rng, byte* b)
 #ifdef HAVE_INTEL_RDGEN
     static int wc_InitRng_IntelRD(void) ;
     #if defined(HAVE_HASHDRBG) || defined(NO_RC4)
-    static int wc_GenerateSeed_IntelRD(OS_Seed* os, byte* output, word32 sz) ;
+	static int wc_GenerateSeed_IntelRD(OS_Seed* os, byte* output, word32 sz) ;
     #else
     static int wc_GenerateRand_IntelRD(OS_Seed* os, byte* output, word32 sz) ;
     #endif

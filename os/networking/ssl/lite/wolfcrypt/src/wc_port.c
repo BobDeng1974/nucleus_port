@@ -98,7 +98,7 @@ int wolfSSL_CryptHwMutexLock(void) {
 
 int wolfSSL_CryptHwMutexUnLock(void) {
     int ret = BAD_MUTEX_E;
-
+    
     if(wcCryptHwMutexInit) {
         ret = UnLockMutex(&wcCryptHwMutex);
     }
@@ -501,7 +501,7 @@ int UnLockMutex(wolfSSL_Mutex *m)
         }
 
     #elif defined(WOLFSSL_uITRON4)
-        #include "stddef.h"
+				#include "stddef.h"
         #include "kernel.h"
         int InitMutex(wolfSSL_Mutex* m)
         {
@@ -683,20 +683,20 @@ int UnLockMutex(wolfSSL_Mutex *m)
         }
 
     #elif defined(WOLFSSL_MDK_ARM)|| defined(WOLFSSL_CMSIS_RTOS)
-
+    
         #if defined(WOLFSSL_CMSIS_RTOS)
             #include "cmsis_os.h"
             #define CMSIS_NMUTEX 10
             osMutexDef(wolfSSL_mt0) ;  osMutexDef(wolfSSL_mt1) ;  osMutexDef(wolfSSL_mt2) ;
-            osMutexDef(wolfSSL_mt3) ;  osMutexDef(wolfSSL_mt4) ;  osMutexDef(wolfSSL_mt5) ;
-            osMutexDef(wolfSSL_mt6) ;  osMutexDef(wolfSSL_mt7) ;  osMutexDef(wolfSSL_mt8) ;
-            osMutexDef(wolfSSL_mt9) ;
-
-            static const osMutexDef_t *CMSIS_mutex[] = { osMutex(wolfSSL_mt0),
-                osMutex(wolfSSL_mt1),    osMutex(wolfSSL_mt2),   osMutex(wolfSSL_mt3),
+            osMutexDef(wolfSSL_mt3) ;  osMutexDef(wolfSSL_mt4) ;  osMutexDef(wolfSSL_mt5) ;  
+            osMutexDef(wolfSSL_mt6) ;  osMutexDef(wolfSSL_mt7) ;  osMutexDef(wolfSSL_mt8) ;  
+            osMutexDef(wolfSSL_mt9) ;  
+            
+            static const osMutexDef_t *CMSIS_mutex[] = { osMutex(wolfSSL_mt0),   
+                osMutex(wolfSSL_mt1),    osMutex(wolfSSL_mt2),   osMutex(wolfSSL_mt3),    
                 osMutex(wolfSSL_mt4),    osMutex(wolfSSL_mt5),   osMutex(wolfSSL_mt6),
-                osMutex(wolfSSL_mt7),    osMutex(wolfSSL_mt8),    osMutex(wolfSSL_mt9) } ;
-
+                osMutex(wolfSSL_mt7),    osMutex(wolfSSL_mt8),    osMutex(wolfSSL_mt9) } ;                 
+            
             static osMutexId CMSIS_mutexID[CMSIS_NMUTEX] = {0} ;
 
             int InitMutex(wolfSSL_Mutex* m)
@@ -724,7 +724,7 @@ int UnLockMutex(wolfSSL_Mutex *m)
                 }
                 return(-1) ;
             }
-
+            
             int LockMutex(wolfSSL_Mutex* m)
             {
                 osMutexWait(*m, osWaitForever) ;
@@ -739,7 +739,7 @@ int UnLockMutex(wolfSSL_Mutex *m)
         #else
         int InitMutex(wolfSSL_Mutex* m)
         {
-            os_mut_init (m);
+            os_mut_init (m); 
             return 0;
         }
 
@@ -763,7 +763,7 @@ int UnLockMutex(wolfSSL_Mutex *m)
     #endif /* USE_WINDOWS_API */
 
 #endif /* SINGLE_THREADED */
-
+        
 #if defined(WOLFSSL_TI_CRYPT) ||  defined(WOLFSSL_TI_HASH)
     #include <wolfcrypt/src/port/ti/ti-ccm.c>  /* initialize and Mutex for TI Crypt Engine */
     #include <wolfcrypt/src/port/ti/ti-hash.c> /* md5, sha1, sha224, sha256 */

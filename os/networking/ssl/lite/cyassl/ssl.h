@@ -623,6 +623,7 @@
 #define CyaSSL_dtls_get_peer            wolfSSL_dtls_get_peer
 #define CyaSSL_dtls_got_timeout         wolfSSL_dtls_got_timeout
 #define CyaSSL_dtls_get_current_timeout wolfSSL_dtls_get_current_timeout
+#define CyaSSL_dtls_set_timeout_init    wolfSSL_dtls_set_timeout_init
 
 /* Certificate Manager */
 #define CyaSSL_CertManagerNew          wolfSSL_CertManagerNew

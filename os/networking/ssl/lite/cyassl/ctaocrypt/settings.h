@@ -102,6 +102,9 @@
 /* Uncomment next line if building for PicoTCP demo bundle */
 /* #define CYASSL_PICOTCP_DEMO */
 
+/* Uncomment next line if using Nucleus */
+#define NUCLEUS
+
 #include <cyassl/ctaocrypt/visibility.h>
 
 #ifdef IPHONE
@@ -679,6 +682,50 @@
     #endif
 #endif /* CYASSL_QL */
 
+#ifdef NUCLEUS
+    #include "nucleus.h"
+    #include "os/networking/ssl/lite/cyassl_nucleus_defs.h"
+    #if defined(CFG_NU_OS_SVCS_POSIX_ENABLE)
+        #include <services/dirent.h>
+        #define HAVE_DIRENT_H
+    #endif
+    #undef SIZEOF_LONG
+    #define SIZEOF_LONG 4
+    #undef SIZEOF_LONG_LONG
+    #define SIZEOF_LONG_LONG 8
+    #if CFG_NU_OS_KERN_PLUS_SUPPLEMENT_STATIC_TEST
+        #define NO_INLINE
+    #endif
+    #if (ESAL_PR_ENDIANESS == ESAL_BIG_ENDIAN)
+        #define BIG_ENDIAN_ORDER
+    #else
+        #undef  BIG_ENDIAN_ORDER
+        #define LITTLE_ENDIAN_ORDER
+    #endif
+    #define NO_WOLFSSL_DIR
+    #define OPENSSL_EXTRA
+
+    /* Workaround for R1-R4 conflict in sha.c and sha512.c from nucleus.h */
+    #undef R1
+    #undef R2
+    #undef R3
+    #undef R4
+
+    /* Only make a call to gettimeofday() if either the current toolchain
+     * doesn't belong to the following toolchain set (which don't have implementation)
+     * Or posix is enabled. In this case, call will either be made to the
+     * implementation in the toolchain's or posix's implementation of gettimeofday().
+     * __CC_ARM check for ARM_RVCT and ARMV7_RVCT_M
+     * _TMS320C6X check for C6000 TI
+     * __RENESAS__ check for RENESAS */
+    #if (   !defined(__CC_ARM) && \
+            !defined(_TMS320C6X) && \
+            !defined(__RENESAS__) \
+        ) || defined(CFG_NU_OS_SVCS_POSIX_ENABLE)
+        #define NUCLEUS_USE_GETTIMEOFDAY
+        #include <sys/time.h>
+    #endif
+#endif /* NUCLEUS */
 
 #if !defined(XMALLOC_USER) && !defined(MICRIUM_MALLOC) && \
     !defined(CYASSL_LEANPSK) && !defined(NO_CYASSL_MEMORY)
